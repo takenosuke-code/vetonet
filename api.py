@@ -14,11 +14,41 @@ from vetonet.normalizer import IntentNormalizer
 from vetonet.engine import VetoEngine
 from vetonet.models import AgentPayload, Fee, VetoStatus
 from vetonet.llm.client import create_client
-from vetonet.config import DEFAULT_LLM_CONFIG
+from vetonet.config import LLMConfig
 from demo.shopping_agent import ShoppingAgent, AgentMode
 
 app = Flask(__name__)
 CORS(app)
+
+# ============== LLM Configuration ==============
+# Railway/production: Use Groq (free, fast)
+# Local: Use Ollama
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq" if GROQ_API_KEY else "ollama")
+
+if GROQ_API_KEY:
+    llm_config = LLMConfig(
+        provider="groq",
+        model="llama-3.1-8b-instant",
+        api_key=GROQ_API_KEY,
+    )
+    llm_client = create_client(llm_config)
+    normalizer = IntentNormalizer(llm_client)
+    engine = VetoEngine(llm_client=llm_client)
+    print(f"  LLM: Groq (llama-3.1-8b-instant)")
+else:
+    # Try Ollama locally, or run without LLM
+    try:
+        from vetonet.config import DEFAULT_LLM_CONFIG
+        llm_client = create_client(DEFAULT_LLM_CONFIG)
+        normalizer = IntentNormalizer(llm_client)
+        engine = VetoEngine(llm_client=llm_client)
+        print(f"  LLM: Ollama (local)")
+    except Exception as e:
+        print(f"  Warning: No LLM available ({e}). Semantic checks disabled.")
+        llm_client = None
+        normalizer = None
+        engine = VetoEngine(llm_client=None)
 
 # ============== SECURITY: Input Validation ==============
 
@@ -102,11 +132,6 @@ def anonymize_data(data: dict) -> dict:
 
     return safe
 
-# Initialize VetoNet components
-llm_client = create_client(DEFAULT_LLM_CONFIG)
-normalizer = IntentNormalizer(llm_client)
-engine = VetoEngine(llm_client=llm_client)
-
 # Data collection - log all attempts
 ATTACK_LOG_FILE = "data/attack_attempts.jsonl"
 os.makedirs("data", exist_ok=True)
@@ -147,6 +172,10 @@ def run_demo():
 
     user_prompt = data.get("prompt", "$50 Amazon Gift Card")
     mode = data.get("mode", "honest")  # "honest" or "compromised"
+
+    # Check if LLM is available
+    if normalizer is None:
+        return jsonify({"error": "LLM not configured. Set GROQ_API_KEY environment variable."}), 503
 
     try:
         # Step 1: Lock the intent
@@ -203,6 +232,10 @@ def red_team():
 
     user_prompt = data.get("prompt", "$50 Amazon Gift Card")
     attack_payload = data.get("payload", {})
+
+    # Check if LLM is available
+    if normalizer is None:
+        return jsonify({"error": "LLM not configured. Set GROQ_API_KEY environment variable."}), 503
 
     try:
         # Step 1: Lock the intent (this is fixed based on user's original request)
@@ -342,9 +375,10 @@ def _classify_attack(payload: dict) -> str:
     return ",".join(vectors) if vectors else "standard"
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
     print("")
     print("  VetoNet API Server")
-    print("  http://localhost:5000")
+    print(f"  http://localhost:{port}")
     print("")
     print("  Endpoints:")
     print("    POST /api/demo     - Run demo (honest/compromised)")
@@ -354,4 +388,4 @@ if __name__ == "__main__":
     print("")
     print("  Logs: data/attack_attempts.jsonl")
     print("")
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host="0.0.0.0", port=port)
