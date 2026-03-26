@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vetonet"
+version = "0.1.0"
+description = "Semantic Firewall for AI Agent Transactions - Prevents intent drift and prompt injection attacks"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "VetoNet" }
+]
+keywords = [
+    "ai",
+    "security",
+    "agents",
+    "firewall",
+    "prompt-injection",
+    "intent-drift",
+    "llm",
+    "crypto",
+    "web3"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "pydantic>=2.0",
+    "requests>=2.28.0",
+]
+
+[project.optional-dependencies]
+ollama = []  # No extra deps - uses HTTP
+groq = ["groq>=0.4.0"]
+anthropic = ["anthropic>=0.40.0"]
+openai = ["openai>=1.0.0"]
+web = ["streamlit>=1.30.0"]
+api = ["flask>=3.0.0", "flask-cors>=4.0.0"]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+]
+all = [
+    "vetonet[groq,anthropic,openai,web,api,dev]"
+]
+
+[project.urls]
+Homepage = "https://github.com/vetonet/vetonet"
+Documentation = "https://github.com/vetonet/vetonet#readme"
+Repository = "https://github.com/vetonet/vetonet"
+Issues = "https://github.com/vetonet/vetonet/issues"
+
+[project.scripts]
+vetonet = "vetonet.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vetonet"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
