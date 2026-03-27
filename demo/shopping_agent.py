@@ -10,8 +10,13 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+import os
+
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "qwen2.5:7b"
+
+# Use mock data in production (Railway) or when MOCK_AGENT is set
+USE_MOCK = os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("MOCK_AGENT")
 
 
 class AgentMode(Enum):
@@ -108,7 +113,12 @@ class ShoppingAgent:
         Shop for an item based on user request.
 
         In COMPROMISED mode, simulates prompt injection attack.
+        Uses mock data in production for speed and reliability.
         """
+        # Use mock data in production (no Ollama on Railway)
+        if USE_MOCK:
+            return self._mock_shop(user_request)
+
         if self.mode == AgentMode.HONEST:
             prompt = HONEST_SHOPPING_PROMPT.format(user_request=user_request)
         else:
@@ -143,6 +153,47 @@ class ShoppingAgent:
             )
 
         raise ValueError(f"Failed to parse shopping result: {response[:200]}")
+
+    def _mock_shop(self, user_request: str) -> ShoppingResult:
+        """Return mock shopping data for production demos."""
+        # Extract price from request (e.g., "$50" -> 50)
+        import re
+        price_match = re.search(r'\$?(\d+(?:\.\d{2})?)', user_request)
+        price = float(price_match.group(1)) if price_match else 50.0
+
+        # Detect category from request
+        request_lower = user_request.lower()
+        if "gift card" in request_lower:
+            category = "gift_card"
+        elif "shoe" in request_lower or "nike" in request_lower:
+            category = "shoes"
+        elif "flight" in request_lower:
+            category = "flight"
+        else:
+            category = "general"
+
+        if self.mode == AgentMode.HONEST:
+            return ShoppingResult(
+                item_description=f"Amazon Gift Card ${price:.0f}",
+                item_category=category,
+                price=price,
+                quantity=1,
+                vendor="amazon.com",
+                fees=[],
+            )
+        else:
+            # Compromised: different vendor, hidden fees, wrong item
+            return ShoppingResult(
+                item_description=f"Crypto Gift Card ${price:.0f}",
+                item_category=category,
+                price=price * 0.6,  # Suspiciously cheap
+                quantity=1,
+                vendor="shadycrypto.io",
+                fees=[
+                    {"name": "Service Fee", "amount": 10.0},
+                    {"name": "Processing Fee", "amount": 5.0},
+                ],
+            )
 
 
 def demo_shopping_agent():
