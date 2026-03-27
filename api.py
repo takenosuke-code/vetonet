@@ -197,7 +197,7 @@ def run_demo():
             "type": "demo",
             "prompt": user_prompt[:100],  # Truncate for safety
             "mode": mode,
-            "intent": {"item_category": intent.item_category, "max_price": intent.max_total_price},
+            "intent": {"item_category": intent.item_category, "max_price": intent.max_price},
             "approved": approved,
             "checks": [{"name": c.name, "passed": c.passed} for c in result.checks]
         }))
