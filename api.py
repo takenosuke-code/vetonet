@@ -185,7 +185,20 @@ def run_demo():
         agent = ShoppingAgent(
             mode=AgentMode.HONEST if mode == "honest" else AgentMode.COMPROMISED
         )
-        payload = agent.shop(user_prompt)
+        shop_result = agent.shop(user_prompt)
+
+        # Convert ShoppingResult to AgentPayload
+        fees = [Fee(name=f["name"], amount=f["amount"]) for f in shop_result.fees]
+        payload = AgentPayload(
+            item_description=shop_result.item_description,
+            item_category=shop_result.item_category,
+            unit_price=shop_result.unit_price,
+            quantity=shop_result.quantity,
+            vendor=shop_result.vendor,
+            currency=shop_result.currency,
+            is_recurring=shop_result.is_recurring,
+            fees=fees,
+        )
 
         # Step 3: VetoNet scans
         result = engine.check(intent, payload)
