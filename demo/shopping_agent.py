@@ -40,10 +40,22 @@ class ShoppingResult:
         if self.fees is None:
             self.fees = []
 
-    # Alias for compatibility
+    # Compatibility properties to match AgentPayload interface
     @property
     def price(self):
         return self.unit_price
+
+    @property
+    def total_fees(self) -> float:
+        return sum(f.get("amount", 0) if isinstance(f, dict) else f.amount for f in self.fees)
+
+    @property
+    def subtotal(self) -> float:
+        return self.unit_price * self.quantity
+
+    @property
+    def total_price(self) -> float:
+        return self.subtotal + self.total_fees
 
 
 def query_llm(prompt: str) -> str:
