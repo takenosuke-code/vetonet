@@ -132,12 +132,85 @@ def anonymize_data(data: dict) -> dict:
 
     return safe
 
+# ============== Database Setup ==============
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def get_db():
+    """Get database connection."""
+    if not DATABASE_URL:
+        return None
+    import psycopg2
+    return psycopg2.connect(DATABASE_URL)
+
+def init_db():
+    """Create tables if they don't exist."""
+    if not DATABASE_URL:
+        print("  Database: None (using file fallback)")
+        return
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attacks (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMPTZ DEFAULT NOW(),
+            type VARCHAR(50),
+            prompt TEXT,
+            attack_vector VARCHAR(100),
+            bypassed BOOLEAN,
+            blocked_by VARCHAR(50),
+            checks JSONB,
+            payload JSONB
+        )
+    """)
+    conn.commit()
+    conn.close()
+    print("  Database: PostgreSQL (connected)")
+
+# Initialize database on startup
+try:
+    init_db()
+except Exception as e:
+    print(f"  Database: Failed ({e})")
+
 # Data collection - log all attempts
 ATTACK_LOG_FILE = "data/attack_attempts.jsonl"
 os.makedirs("data", exist_ok=True)
 
 def log_attempt(data):
-    """Log attack attempts for analysis"""
+    """Log attack attempts to database (or file fallback)."""
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+
+            # Find which check blocked it
+            blocked_by = None
+            if not data.get("bypassed") and not data.get("approved"):
+                for check in data.get("checks", []):
+                    if not check.get("passed"):
+                        blocked_by = check.get("name")
+                        break
+
+            cur.execute("""
+                INSERT INTO attacks (type, prompt, attack_vector, bypassed, blocked_by, checks, payload)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                data.get("type"),
+                data.get("prompt"),
+                data.get("attack_vector"),
+                data.get("bypassed", data.get("approved", False)),
+                blocked_by,
+                json.dumps(data.get("checks", [])),
+                json.dumps(data.get("payload", {})),
+            ))
+            conn.commit()
+            conn.close()
+            return
+        except Exception as e:
+            print(f"DB Error: {e}")
+
+    # Fallback to file
     with open(ATTACK_LOG_FILE, "a") as f:
         f.write(json.dumps(data) + "\n")
 
@@ -307,6 +380,35 @@ def get_stats():
     """
     Get attack statistics for dashboard
     """
+    # Try Postgres first
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE bypassed = true) as bypassed,
+                    COUNT(*) FILTER (WHERE bypassed = false) as blocked
+                FROM attacks
+            """)
+            row = cur.fetchone()
+            conn.close()
+
+            total = row[0] or 0
+            bypassed = row[1] or 0
+            blocked = row[2] or 0
+
+            return jsonify({
+                "total_attempts": total,
+                "blocked": blocked,
+                "bypassed": bypassed,
+                "bypass_rate": round(bypassed / max(total, 1) * 100, 2)
+            })
+        except Exception as e:
+            print(f"DB stats error: {e}")
+
+    # Fallback to file
     if not os.path.exists(ATTACK_LOG_FILE):
         return jsonify({
             "total_attempts": 0,
@@ -349,6 +451,38 @@ def get_attacks():
     SECURITY: Requires API key via X-API-Key header.
     Set VETONET_ADMIN_KEY env var to enable auth.
     """
+    # Try Postgres first
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT timestamp, type, prompt, attack_vector, bypassed, blocked_by, checks, payload
+                FROM attacks
+                ORDER BY timestamp DESC
+                LIMIT 100
+            """)
+            rows = cur.fetchall()
+            conn.close()
+
+            attacks = []
+            for row in rows:
+                attacks.append({
+                    "timestamp": row[0].isoformat() if row[0] else None,
+                    "type": row[1],
+                    "prompt": row[2],
+                    "attack_vector": row[3],
+                    "bypassed": row[4],
+                    "blocked_by": row[5],
+                    "checks": row[6],
+                    "payload": row[7],
+                })
+
+            return jsonify({"attacks": attacks})
+        except Exception as e:
+            print(f"DB attacks error: {e}")
+
+    # Fallback to file
     if not os.path.exists(ATTACK_LOG_FILE):
         return jsonify({"attacks": []})
 
@@ -362,6 +496,82 @@ def get_attacks():
 
     # Return last 100 attacks, newest first
     return jsonify({"attacks": attacks[-100:][::-1]})
+
+
+@app.route("/api/export/csv", methods=["GET"])
+@require_api_key
+def export_csv():
+    """
+    Export attack data as CSV for Google Sheets.
+    SECURITY: Requires API key via X-API-Key header.
+    """
+    import csv
+    from io import StringIO
+
+    output = StringIO()
+    writer = csv.writer(output)
+
+    # Header row
+    writer.writerow([
+        "Timestamp", "Type", "Prompt", "Attack Vector",
+        "Bypassed", "Blocked By", "Unit Price", "Vendor"
+    ])
+
+    # Try Postgres first
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT timestamp, type, prompt, attack_vector, bypassed, blocked_by, payload
+                FROM attacks
+                ORDER BY timestamp DESC
+            """)
+            rows = cur.fetchall()
+            conn.close()
+
+            for row in rows:
+                payload = row[6] or {}
+                writer.writerow([
+                    row[0].isoformat() if row[0] else "",
+                    row[1] or "",
+                    row[2] or "",
+                    row[3] or "",
+                    "Yes" if row[4] else "No",
+                    row[5] or "",
+                    payload.get("unit_price", ""),
+                    payload.get("vendor", ""),
+                ])
+        except Exception as e:
+            print(f"DB export error: {e}")
+    else:
+        # Fallback to file
+        if os.path.exists(ATTACK_LOG_FILE):
+            with open(ATTACK_LOG_FILE, "r") as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                        payload = entry.get("payload", {})
+                        writer.writerow([
+                            entry.get("timestamp", ""),
+                            entry.get("type", ""),
+                            entry.get("prompt", ""),
+                            entry.get("attack_vector", ""),
+                            "Yes" if entry.get("bypassed") else "No",
+                            entry.get("blocked_by", ""),
+                            payload.get("unit_price", ""),
+                            payload.get("vendor", ""),
+                        ])
+                    except:
+                        pass
+
+    response = app.response_class(
+        response=output.getvalue(),
+        status=200,
+        mimetype='text/csv'
+    )
+    response.headers["Content-Disposition"] = "attachment; filename=vetonet_attacks.csv"
+    return response
 
 
 def _classify_attack(payload: dict) -> str:
@@ -394,10 +604,11 @@ if __name__ == "__main__":
     print(f"  http://localhost:{port}")
     print("")
     print("  Endpoints:")
-    print("    POST /api/demo     - Run demo (honest/compromised)")
-    print("    POST /api/redteam  - Red team attack mode")
-    print("    GET  /api/stats    - Attack statistics")
-    print("    GET  /api/attacks  - Recent attempts")
+    print("    POST /api/demo       - Run demo (honest/compromised)")
+    print("    POST /api/redteam    - Red team attack mode")
+    print("    GET  /api/stats      - Attack statistics")
+    print("    GET  /api/attacks    - Recent attempts (auth)")
+    print("    GET  /api/export/csv - Export to CSV (auth)")
     print("")
     print("  Logs: data/attack_attempts.jsonl")
     print("")
