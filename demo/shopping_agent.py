@@ -29,7 +29,7 @@ class ShoppingResult:
     """Result from the shopping agent."""
     item_description: str
     item_category: str
-    price: float
+    unit_price: float  # Changed from 'price' to match AgentPayload
     quantity: int
     vendor: str
     currency: str = "USD"
@@ -39,6 +39,11 @@ class ShoppingResult:
     def __post_init__(self):
         if self.fees is None:
             self.fees = []
+
+    # Alias for compatibility
+    @property
+    def price(self):
+        return self.unit_price
 
 
 def query_llm(prompt: str) -> str:
@@ -146,7 +151,7 @@ class ShoppingAgent:
             return ShoppingResult(
                 item_description=data.get("item_description", "Unknown Item"),
                 item_category=normalized_category,
-                price=float(data.get("price", 0)),
+                unit_price=float(data.get("price", 0)),
                 quantity=int(data.get("quantity", 1)),
                 vendor=data.get("vendor", "unknown"),
                 fees=data.get("fees", []),
@@ -176,7 +181,7 @@ class ShoppingAgent:
             return ShoppingResult(
                 item_description=f"Amazon Gift Card ${price:.0f}",
                 item_category=category,
-                price=price,
+                unit_price=price,
                 quantity=1,
                 vendor="amazon.com",
                 fees=[],
@@ -186,7 +191,7 @@ class ShoppingAgent:
             return ShoppingResult(
                 item_description=f"Crypto Gift Card ${price:.0f}",
                 item_category=category,
-                price=price * 0.6,  # Suspiciously cheap
+                unit_price=price * 0.6,  # Suspiciously cheap
                 quantity=1,
                 vendor="shadycrypto.io",
                 fees=[
