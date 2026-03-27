@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Shield, ShieldAlert, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Bot, User, Lock, Play, RotateCcw, Swords, Target, Trophy, Skull } from 'lucide-react'
 import './index.css'
 
-const API_BASE = '/api'
+// Use Railway backend in production, local in development
+const API_BASE = import.meta.env.VITE_API_URL || 'https://web-production-fec907.up.railway.app/api'
 
 const SECURITY_CHECKS = [
   { id: 'price', name: 'Price Limit', desc: 'Total ≤ max allowed' },
