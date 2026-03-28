@@ -20,8 +20,13 @@ MVP for crypto wallets / AI agent companies. Positioning: first-mover, specializ
 
 ## Current Deployment
 - GitHub: https://github.com/takenosuke-code/vetonet
-- Railway: Backend API (needs GROQ_API_KEY env var)
-- Frontend: React playground in `/playground`
+- Backend: https://web-production-fec907.up.railway.app
+- Frontend: https://vetonet-3jz7.vercel.app
+- Railway env vars: `GROQ_API_KEY`, `DATABASE_URL`, `VETONET_ADMIN_KEY`
+
+## Testing
+- `scripts/fuzzer.py` - 100+ hardcoded attack patterns
+- `scripts/attack_agent.py` - AI-generated attacks (needs Groq)
 
 ## Private Docs (gitignored)
 - `docs/STRATEGY.md` - Funding/investor strategy
