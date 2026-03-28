@@ -27,18 +27,29 @@ const EXAMPLE_PROMPTS = [
 
 // Helper function for relative time formatting
 function formatRelativeTime(timestamp) {
+  if (!timestamp) return 'just now'
+
+  // Ensure timestamp is parsed as UTC (add Z if no timezone)
+  let ts = timestamp
+  if (!ts.endsWith('Z') && !ts.includes('+')) {
+    ts = ts + 'Z'
+  }
+
   const now = Date.now()
-  const diff = now - new Date(timestamp).getTime()
+  const diff = now - new Date(ts).getTime()
+
+  // Handle future timestamps or invalid dates
+  if (diff < 0 || isNaN(diff)) return 'just now'
 
   const seconds = Math.floor(diff / 1000)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
   const days = Math.floor(hours / 24)
 
-  if (seconds < 60) return `${seconds} sec ago`
-  if (minutes < 60) return `${minutes} min ago`
-  if (hours < 24) return `${hours} hr ago`
-  return `${days} day${days > 1 ? 's' : ''} ago`
+  if (seconds < 60) return `${seconds}s ago`
+  if (minutes < 60) return `${minutes}m ago`
+  if (hours < 24) return `${hours}h ago`
+  return `${days}d ago`
 }
 
 // AttackFeed Component - Real-time scrolling feed of attacks
