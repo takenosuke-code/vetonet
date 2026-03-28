@@ -349,14 +349,20 @@ def red_team():
         # Did the attack bypass VetoNet?
         bypassed = approved
 
-        # Log attack attempt (anonymized - no full payload in logs)
+        # Log attack attempt (with safe payload fields for analytics)
         log_attempt(anonymize_data({
             "timestamp": datetime.now().isoformat(),
             "type": "redteam",
             "prompt": user_prompt[:100],
-            "attack_vector": _classify_attack(attack_payload),  # Categorize, don't log raw
+            "attack_vector": _classify_attack(attack_payload),
             "bypassed": bypassed,
-            "checks": [{"name": c.name, "passed": c.passed} for c in result.checks]
+            "checks": [{"name": c.name, "passed": c.passed} for c in result.checks],
+            "payload": {
+                "unit_price": payload.unit_price,
+                "vendor": payload.vendor,
+                "item_category": payload.item_category,
+                "fees_total": sum(f.amount for f in payload.fees),
+            }
         }))
 
         return jsonify({
