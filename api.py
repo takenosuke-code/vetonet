@@ -7,6 +7,7 @@ from flask_cors import CORS
 from datetime import datetime
 from functools import wraps
 import hashlib
+import hmac
 import json
 import os
 
@@ -18,7 +19,10 @@ from vetonet.config import LLMConfig
 from demo.shopping_agent import ShoppingAgent, AgentMode
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=[
+    "https://vetonet-3jz7.vercel.app",
+    "http://localhost:5173",  # Local dev
+])
 
 # ============== LLM Configuration ==============
 # Railway/production: Use Groq (free, fast)
@@ -100,10 +104,12 @@ def require_api_key(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         api_key = os.environ.get("VETONET_ADMIN_KEY")
-        if api_key:
-            provided_key = request.headers.get("X-API-Key")
-            if provided_key != api_key:
-                return jsonify({"error": "Unauthorized"}), 401
+        if not api_key:
+            # Fail closed - require key to be configured
+            return jsonify({"error": "Admin key not configured"}), 500
+        provided_key = request.headers.get("X-API-Key")
+        if not provided_key or not hmac.compare_digest(provided_key, api_key):
+            return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     return decorated
 
