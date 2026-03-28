@@ -4,20 +4,25 @@
 # Claude Code local settings
 .claude/
 
-# Sensitive docs (business strategy, security reports)
-docs/STRATEGY.md
-docs/SECURITY_AUDIT.md
-docs/ATTACK_REPORT.md
-docs/INVESTOR_BRIEF.md
-docs/OUTREACH.md
+# ===========================================
+# PROPRIETARY - NEVER COMMIT
+# ===========================================
+
+# All docs are private (strategy, reports, pitches)
+docs/
 CLAUDE.md
 
-# Attack data logs (PROPRIETARY - never commit)
+# Private folder (for local-only files)
+private/
+
+# Attack data logs
 data/
 *.jsonl
 
-# Fuzzer/pentest result files (now stored in Supabase)
+# All result files (attack data)
 *_results.json
+*_results.csv
+*_export.csv
 *_pentest*.json
 fuzzer_results.json
 
@@ -25,11 +30,18 @@ fuzzer_results.json
 *.csv
 !requirements.csv
 
-# Sophisticated pentest scripts (PROPRIETARY - keep private)
-scripts/mega_pentest.py
-scripts/elite_pentest.py
-scripts/advanced_pentest.py
-scripts/attack_agent.py
+# Sophisticated pentest scripts
+scripts/mega_pentest*.py
+scripts/elite_pentest*.py
+scripts/advanced_pentest*.py
+scripts/attack_agent*.py
+scripts/*_attack*.py
+scripts/import_kaggle.py
+
+# Any file with "attack", "bypass", or "exploit" in name
+*attack*.json
+*bypass*.json
+*exploit*.json
 
 # Credentials
 *.pypirc
