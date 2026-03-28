@@ -123,7 +123,7 @@ result = veto.verify(
 
 ## Security Checks
 
-VetoNet runs 9 security checks in order (fast to slow):
+VetoNet runs 10 security checks in order (fast to slow):
 
 | Check | Type | What It Catches |
 |-------|------|-----------------|
@@ -135,6 +135,7 @@ VetoNet runs 9 security checks in order (fast to slow):
 | Hidden Fees | Deterministic | Service fees, processing fees |
 | Vendor | Deterministic | Scam domains, brand spoofing |
 | Price Anomaly | Deterministic | Suspiciously cheap (scam indicator) |
+| Scam Patterns | Deterministic | Gift card scams, tech support, IRS fraud |
 | Semantic | LLM-based | Item doesn't match intent constraints |
 
 Checks run in order and fail fast - if price check fails, we don't waste time on semantic check.

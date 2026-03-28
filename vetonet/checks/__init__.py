@@ -10,6 +10,7 @@ from vetonet.checks.deterministic import (
     check_hidden_fees,
     check_subscription_trap,
     check_currency_manipulation,
+    check_scam_patterns,
 )
 from vetonet.checks.semantic import check_semantic_match
 
@@ -23,5 +24,6 @@ __all__ = [
     "check_hidden_fees",
     "check_subscription_trap",
     "check_currency_manipulation",
+    "check_scam_patterns",
     "check_semantic_match",
 ]

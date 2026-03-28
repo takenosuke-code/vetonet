@@ -379,3 +379,109 @@ def check_currency_manipulation(
         passed=True,
         reason="Currency matches",
     )
+
+
+# Suspicious email patterns commonly used in gift card scams
+SCAM_EMAIL_PATTERNS = [
+    r'urgent[._-]?payment',
+    r'payment[._-]?required',
+    r'irs[._-]?payment',
+    r'tax[._-]?payment',
+    r'tech[._-]?support',
+    r'microsoft[._-]?support',
+    r'apple[._-]?support',
+    r'amazon[._-]?support',
+    r'refund[._-]?dept',
+    r'lottery[._-]?winner',
+    r'prize[._-]?claim',
+    r'emergency[._-]?fund',
+    r'bitcoin[._-]?payment',
+    r'crypto[._-]?transfer',
+    r'wire[._-]?transfer',
+    r'western[._-]?union',
+    r'moneygram',
+    r'gift[._-]?card[._-]?payment',
+]
+
+# Suspicious phrases in gift card descriptions
+SCAM_DESCRIPTION_PATTERNS = [
+    r'send\s+to\s*:\s*\S+@\S+',  # "send to: email@domain"
+    r'email\s+to\s*:\s*\S+@\S+',  # "email to: email@domain"
+    r'recipient\s*:\s*\S+@\S+',  # "recipient: email@domain"
+    r'deliver\s+to\s*:\s*\S+@\S+',  # "deliver to: email@domain"
+    r'for\s*:\s*\S+@\S+',  # "for: email@domain"
+    r'@(gmail|yahoo|hotmail|outlook|protonmail)\.(com|net|org)',  # Common free email providers in description
+    r'whatsapp\s*[+:]?\s*[\d\-\s]+',  # WhatsApp numbers
+    r'telegram\s*[+:]?\s*[@\w]+',  # Telegram handles
+    r'call\s+(me|us|back)\s+at',  # Call back scams
+    r'(urgent|immediate|asap|emergency)\s+(payment|transfer|send)',  # Urgency language
+    r'(irs|fbi|ssa|dea|ice)\s+(payment|fine|penalty)',  # Government impersonation
+    r'(arrest|warrant|lawsuit)\s+',  # Legal threats
+    r'(lottery|sweepstakes|prize|winner)\s+(claim|fee|payment)',  # Lottery scams
+    r'(processing|activation|release)\s+fee',  # Fake fees
+    r'(guaranteed|instant)\s+(return|profit|income)',  # Investment scams
+    r'\+1[-\s]?\d{3}[-\s]?\d{3}[-\s]?\d{4}',  # US phone numbers
+    r'\+\d{1,3}[-\s]?\d{6,12}',  # International phone numbers
+]
+
+
+def check_scam_patterns(
+    payload: AgentPayload,
+) -> CheckResult:
+    """
+    Detect common scam patterns in transaction descriptions.
+
+    Catches attacks like:
+    - Gift card scams (send to suspicious email)
+    - Tech support scams
+    - IRS/government impersonation
+    - Lottery/prize scams
+    - Romance scams (emergency funds)
+
+    This is a DETERMINISTIC check - no LLM variance, 100% reliable.
+    """
+    import re
+
+    description_lower = payload.item_description.lower()
+
+    # Check for suspicious email patterns
+    for pattern in SCAM_EMAIL_PATTERNS:
+        if re.search(pattern, description_lower, re.IGNORECASE):
+            return CheckResult(
+                name="scam_pattern",
+                passed=False,
+                reason=f"Suspicious scam pattern detected in description",
+            )
+
+    # Check for suspicious description patterns
+    for pattern in SCAM_DESCRIPTION_PATTERNS:
+        if re.search(pattern, description_lower, re.IGNORECASE):
+            match = re.search(pattern, description_lower, re.IGNORECASE)
+            matched_text = match.group(0) if match else "pattern"
+            return CheckResult(
+                name="scam_pattern",
+                passed=False,
+                reason=f"Suspicious content detected: '{matched_text[:50]}'",
+            )
+
+    # Special check: Gift cards with external email recipients
+    # Gift cards should be added to your own account, not sent to random emails
+    if payload.item_category and 'gift' in payload.item_category.lower():
+        # Check if there's any email address in the description
+        email_match = re.search(r'\b[\w.-]+@[\w.-]+\.\w+\b', payload.item_description)
+        if email_match:
+            email = email_match.group(0)
+            # Flag any email that looks suspicious
+            suspicious_words = ['urgent', 'payment', 'required', 'support', 'help', 'claim', 'prize', 'winner', 'irs', 'tax']
+            if any(word in email.lower() for word in suspicious_words):
+                return CheckResult(
+                    name="scam_pattern",
+                    passed=False,
+                    reason=f"Gift card sent to suspicious email: {email}",
+                )
+
+    return CheckResult(
+        name="scam_pattern",
+        passed=True,
+        reason="No scam patterns detected",
+    )
