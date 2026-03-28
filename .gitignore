@@ -10,8 +10,27 @@ docs/SECURITY_AUDIT.md
 docs/ATTACK_REPORT.md
 docs/INVESTOR_BRIEF.md
 
-# Attack data logs
+# Attack data logs (PROPRIETARY - never commit)
 data/
+*.jsonl
+
+# Fuzzer/pentest result files (now stored in Supabase)
+*_results.json
+*_pentest_results.json
+fuzzer_results.json
+
+# CSV exports (attack data)
+*.csv
+!requirements.csv
+
+# Sophisticated pentest scripts (PROPRIETARY - keep private)
+scripts/mega_pentest.py
+scripts/elite_pentest.py
+scripts/advanced_pentest.py
+
+# Credentials
+*.pypirc
+.pypirc
 
 # Python
 __pycache__/
