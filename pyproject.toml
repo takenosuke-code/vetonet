@@ -1,13 +1,13 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "vetonet"
 version = "0.1.0"
-description = "Semantic Firewall for AI Agent Transactions - Prevents intent drift and prompt injection attacks"
+description = "Semantic Firewall for AI Agent Transactions"
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
     { name = "VetoNet" }
@@ -41,32 +41,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ollama = []  # No extra deps - uses HTTP
 groq = ["groq>=0.4.0"]
 anthropic = ["anthropic>=0.40.0"]
-openai = ["openai>=1.0.0"]
-web = ["streamlit>=1.30.0"]
-api = ["flask>=3.0.0", "flask-cors>=4.0.0"]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "ruff>=0.1.0",
-]
-all = [
-    "vetonet[groq,anthropic,openai,web,api,dev]"
-]
+ollama = ["requests>=2.28.0"]
 
 [project.urls]
-Homepage = "https://github.com/vetonet/vetonet"
-Documentation = "https://github.com/vetonet/vetonet#readme"
-Repository = "https://github.com/vetonet/vetonet"
-Issues = "https://github.com/vetonet/vetonet/issues"
+Homepage = "https://github.com/takenosuke-code/vetonet"
+Documentation = "https://github.com/takenosuke-code/vetonet#readme"
+Repository = "https://github.com/takenosuke-code/vetonet"
+Issues = "https://github.com/takenosuke-code/vetonet/issues"
 
 [project.scripts]
 vetonet = "vetonet.cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["vetonet"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vetonet*"]
 
 [tool.ruff]
 line-length = 100
