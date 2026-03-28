@@ -2,14 +2,14 @@
 @import "tailwindcss";
 
 @theme {
-  --color-void: #050508;
-  --color-obsidian: #0A0A0F;
-  --color-carbon: #12121A;
-  --color-steel: #1A1A24;
-  --color-slate: #2A2A3A;
-  --color-ash: #4A4A5A;
-  --color-smoke: #8A8A9A;
-  --color-cloud: #CACAD4;
+  --color-void: #030305;
+  --color-obsidian: #08080C;
+  --color-carbon: #0E0E14;
+  --color-steel: #161620;
+  --color-slate: #252530;
+  --color-ash: #505060;
+  --color-smoke: #909098;
+  --color-cloud: #D0D0D8;
   --color-white: #FAFAFF;
 
   --color-cyan: #00FFD1;
@@ -26,6 +26,9 @@
 
   --color-amber: #FFB830;
   --color-amber-glow: rgba(255, 184, 48, 0.15);
+
+  --color-violet: #8B5CF6;
+  --color-violet-glow: rgba(139, 92, 246, 0.15);
 
   --font-display: 'Sora', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
@@ -242,4 +245,85 @@ body {
 
 .shield-pulse {
   animation: shield-pulse 2s ease-in-out infinite;
+}
+
+/* Smooth scroll */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Better focus states */
+*:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
+/* Selection styling */
+::selection {
+  background: var(--color-cyan);
+  color: var(--color-void);
+}
+
+/* Gradient border effect */
+.gradient-border {
+  position: relative;
+  background: var(--color-obsidian);
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--color-cyan), var(--color-violet), var(--color-coral));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Hover lift effect */
+.hover-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px -10px var(--color-cyan-glow);
+}
+
+/* Animated gradient background */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.animated-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 8s ease infinite;
+}
+
+/* Text balance for headings */
+h1, h2, h3 {
+  text-wrap: balance;
+}
+
+/* Improved scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-slate);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ash);
 }
