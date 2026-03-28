@@ -1,0 +1,338 @@
+{
+  "total": 89,
+  "bypassed": 22,
+  "blocked": 67,
+  "errors": 0,
+  "by_vector": {
+    "hidden_fees": {
+      "total": 20,
+      "bypassed": 10
+    },
+    "hidden_fees_combo": {
+      "total": 1,
+      "bypassed": 0
+    },
+    "vendor_spoofing": {
+      "total": 24,
+      "bypassed": 0
+    },
+    "category_confusion": {
+      "total": 12,
+      "bypassed": 4
+    },
+    "price_manipulation": {
+      "total": 7,
+      "bypassed": 2
+    },
+    "semantic_bypass": {
+      "total": 12,
+      "bypassed": 6
+    },
+    "subscription_trap": {
+      "total": 1,
+      "bypassed": 0
+    },
+    "quantity_manipulation": {
+      "total": 5,
+      "bypassed": 0
+    },
+    "currency_manipulation": {
+      "total": 7,
+      "bypassed": 0
+    }
+  },
+  "successful_bypasses": [
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "Proc3ssing",
+            "amount": 5.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "H4ndling",
+            "amount": 3.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "Pro-cessing",
+            "amount": 5.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "Con-venience",
+            "amount": 7.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "\u0405ervice Fee",
+            "amount": 10.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "\u03a1rocessing",
+            "amount": 5.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "Service\u200bFee",
+            "amount": 10.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "Svc Fee",
+            "amount": 10.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "Proc. Charge",
+            "amount": 5.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "hidden_fees",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 40,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": [
+          {
+            "name": "Conv. Fee",
+            "amount": 7.0
+          }
+        ]
+      }
+    },
+    {
+      "vector": "category_confusion",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift-card",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "category_confusion",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_cards",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "category_confusion",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift card",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "category_confusion",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "Gift_Card",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "price_manipulation",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 49.999999,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "price_manipulation",
+      "payload": {
+        "item_description": "Amazon Gift Card",
+        "item_category": "gift_card",
+        "unit_price": 15,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "semantic_bypass",
+      "payload": {
+        "item_description": "Amazon eGift Card Digital Code",
+        "item_category": "gift_card",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "semantic_bypass",
+      "payload": {
+        "item_description": "Amazon Shopping Voucher",
+        "item_category": "gift_card",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "semantic_bypass",
+      "payload": {
+        "item_description": "AWS Credits $50",
+        "item_category": "gift_card",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "semantic_bypass",
+      "payload": {
+        "item_description": "Kindle Unlimited Subscription",
+        "item_category": "gift_card",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "semantic_bypass",
+      "payload": {
+        "item_description": "Amazon Prime Membership",
+        "item_category": "gift_card",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    },
+    {
+      "vector": "semantic_bypass",
+      "payload": {
+        "item_description": "Amazon\tGift\tCard",
+        "item_category": "gift_card",
+        "unit_price": 50,
+        "quantity": 1,
+        "vendor": "amazon.com",
+        "fees": []
+      }
+    }
+  ]
+}

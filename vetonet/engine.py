@@ -17,6 +17,7 @@ from vetonet.checks import (
     check_hidden_fees,
     check_subscription_trap,
     check_currency_manipulation,
+    check_scam_patterns,
     check_semantic_match,
 )
 
@@ -37,7 +38,8 @@ class VetoEngine:
     6. Hidden fees check (deterministic)
     7. Vendor check (deterministic)
     8. Price anomaly check (deterministic)
-    9. Semantic match (LLM-based)
+    9. Scam patterns check (deterministic)
+    10. Semantic match (LLM-based)
     """
 
     def __init__(
@@ -79,6 +81,7 @@ class VetoEngine:
             lambda: check_hidden_fees(payload),
             lambda: check_vendor(payload, self.veto_config, anchor),
             lambda: check_price_anomaly(anchor, payload, self.veto_config),
+            lambda: check_scam_patterns(payload),
         ]
 
         for check_fn in deterministic_checks:
