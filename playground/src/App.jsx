@@ -103,8 +103,9 @@ function AttackFeed() {
             onClick={() => setIsCollapsed(!isCollapsed)}
           >
             <div className="flex items-center gap-3">
-              <h3 className="font-mono text-sm font-semibold text-white tracking-wide">
-                LIVE ATTACK FEED
+              <ShieldCheck className="w-4 h-4 text-cyan" />
+              <h3 className="font-mono text-sm font-semibold text-cyan tracking-wide">
+                THREATS BLOCKED
               </h3>
               <div className="flex items-center gap-2">
                 <motion.div
@@ -230,9 +231,11 @@ function App() {
   })
   const [newFee, setNewFee] = useState({ name: '', amount: '' })
 
-  // Fetch stats on load
+  // Fetch stats on load and poll every 5 seconds
   useEffect(() => {
     fetchStats()
+    const interval = setInterval(fetchStats, 5000)
+    return () => clearInterval(interval)
   }, [])
 
   const fetchStats = async () => {
@@ -437,19 +440,19 @@ function App() {
           <div className="glass-card rounded-xl p-4 flex justify-center gap-8 text-center">
             <div>
               <div className="text-2xl font-bold text-white">{stats.total_attempts}</div>
-              <div className="text-xs text-ash font-mono">Total Attempts</div>
+              <div className="text-xs text-ash font-mono">Attacks Tested</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-lime">{stats.blocked}</div>
-              <div className="text-xs text-ash font-mono">Blocked</div>
+              <div className="text-xs text-ash font-mono">Threats Blocked</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-coral">{stats.bypassed}</div>
-              <div className="text-xs text-ash font-mono">Bypassed</div>
+              <div className="text-xs text-ash font-mono">Slipped Through</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-amber">{stats.bypass_rate}%</div>
-              <div className="text-xs text-ash font-mono">Bypass Rate</div>
+              <div className="text-xs text-ash font-mono">Miss Rate</div>
             </div>
           </div>
         </div>
