@@ -4,6 +4,22 @@
 
 VetoNet prevents "Intent Drift" when AI agents make purchases on your behalf. It intercepts transactions, compares them against your original intent, and vetoes if something's wrong.
 
+## Installation
+
+```bash
+pip install vetonet
+```
+
+### With LLM Providers
+
+```bash
+pip install vetonet[groq]      # Free hosted LLM
+pip install vetonet[anthropic] # Claude
+pip install vetonet[ollama]    # Local Ollama (default)
+```
+
+## Quick Start
+
 ```python
 from vetonet import VetoNet
 
@@ -38,23 +54,16 @@ VetoNet acts as an independent security layer:
 3. **Compare** - Run 9 security checks (price, vendor, category, semantic match, etc.)
 4. **Veto** - Block if the transaction drifts from the original intent
 
-## Installation
+## Provider Options
 
-```bash
-pip install vetonet
-```
+| Provider | Setup | Cost | Best For |
+|----------|-------|------|----------|
+| `ollama` | Local install | Free | Development, privacy |
+| `groq` | API key | Free tier | Demos, testing |
+| `anthropic` | API key | Paid | Production |
+| `none` | None | Free | Deterministic-only mode |
 
-### With LLM Providers
-
-```bash
-pip install vetonet[groq]      # Free hosted LLM
-pip install vetonet[anthropic] # Claude
-pip install vetonet[openai]    # GPT-4
-```
-
-## Quick Start
-
-### Basic Usage (Ollama)
+### Basic Usage (Ollama - Default)
 
 ```python
 from vetonet import VetoNet
@@ -82,6 +91,15 @@ print(result.reason)    # "All checks passed"
 from vetonet import VetoNet
 
 veto = VetoNet(provider="groq", api_key="your-groq-api-key")
+result = veto.verify(intent="...", payload={...})
+```
+
+### With Anthropic (Claude)
+
+```python
+from vetonet import VetoNet
+
+veto = VetoNet(provider="anthropic", api_key="your-anthropic-api-key")
 result = veto.verify(intent="...", payload={...})
 ```
 
@@ -131,6 +149,9 @@ vetonet --intent "$50 Amazon Gift Card" \
 
 # Output as JSON
 vetonet -i "..." -p @payload.json --json
+
+# Use with Groq
+vetonet -i "$50 Amazon Gift Card" -p @payload.json --provider groq --api-key $GROQ_API_KEY
 ```
 
 ## API Reference
@@ -164,22 +185,17 @@ result.reason    # str - Explanation
 result.checks    # list[CheckResult] - Details of each check
 ```
 
-## Providers
-
-| Provider | Setup | Cost | Best For |
-|----------|-------|------|----------|
-| `ollama` | Local install | Free | Development, privacy |
-| `groq` | API key | Free tier | Demos, testing |
-| `anthropic` | API key | Paid | Production |
-| `openai` | API key | Paid | Production |
-| `none` | None | Free | Deterministic-only mode |
-
 ## Use Cases
 
 - **Crypto Wallets** - Verify agent transactions before signing
 - **AI Agent Platforms** - Add security layer for autonomous agents
 - **Fintech Apps** - Fraud prevention for AI-powered spending
 - **E-commerce** - Protect users from malicious product recommendations
+
+## Links
+
+- **GitHub**: https://github.com/takenosuke-code/vetonet
+- **Issues**: https://github.com/takenosuke-code/vetonet/issues
 
 ## License
 
