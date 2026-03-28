@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Shield, ShieldAlert, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Bot, User, Lock, Play, RotateCcw, Swords, Target, Trophy, Skull } from 'lucide-react'
+import { Shield, ShieldAlert, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Bot, User, Lock, Play, RotateCcw, Swords, Target, Trophy, Skull, Unlock, ChevronDown, ChevronUp } from 'lucide-react'
 import './index.css'
 
 // Use Railway backend in production, local in development
@@ -24,6 +24,174 @@ const EXAMPLE_PROMPTS = [
   'Order 2 large pizzas from Dominos, max $40',
   'Get a monthly Netflix subscription',
 ]
+
+// Helper function for relative time formatting
+function formatRelativeTime(timestamp) {
+  const now = Date.now()
+  const diff = now - new Date(timestamp).getTime()
+
+  const seconds = Math.floor(diff / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+
+  if (seconds < 60) return `${seconds} sec ago`
+  if (minutes < 60) return `${minutes} min ago`
+  if (hours < 24) return `${hours} hr ago`
+  return `${days} day${days > 1 ? 's' : ''} ago`
+}
+
+// AttackFeed Component - Real-time scrolling feed of attacks
+function AttackFeed() {
+  const [attacks, setAttacks] = useState([])
+  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isLive, setIsLive] = useState(true)
+
+  // Fetch attacks from API
+  const fetchAttacks = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/feed`)
+      if (res.ok) {
+        const data = await res.json()
+        // Map API response to component format
+        const mapped = (data.attacks || []).slice(0, 10).map(a => ({
+          ...a,
+          blocked: !a.bypassed,
+          reason: a.blocked_by
+        }))
+        setAttacks(mapped)
+        setIsLive(true)
+      }
+    } catch (e) {
+      setIsLive(false)
+    }
+  }
+
+  // Fetch on mount and every 5 seconds
+  useEffect(() => {
+    fetchAttacks()
+    const interval = setInterval(fetchAttacks, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <div className="relative z-10 px-6 mb-6">
+      <div className="max-w-4xl mx-auto">
+        <motion.div
+          className="glass-card rounded-xl overflow-hidden"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
+          {/* Header */}
+          <div
+            className="flex items-center justify-between px-4 py-3 border-b border-slate/30 cursor-pointer md:cursor-default"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+          >
+            <div className="flex items-center gap-3">
+              <h3 className="font-mono text-sm font-semibold text-white tracking-wide">
+                LIVE ATTACK FEED
+              </h3>
+              <div className="flex items-center gap-2">
+                <motion.div
+                  className={`w-2 h-2 rounded-full ${isLive ? 'bg-lime' : 'bg-coral'}`}
+                  animate={{ opacity: isLive ? [1, 0.4, 1] : 1 }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                />
+                <span className={`font-mono text-xs ${isLive ? 'text-lime' : 'text-coral'}`}>
+                  {isLive ? 'LIVE' : 'OFFLINE'}
+                </span>
+              </div>
+            </div>
+            {/* Mobile collapse toggle */}
+            <button className="md:hidden text-smoke hover:text-white transition-colors">
+              {isCollapsed ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+            </button>
+          </div>
+
+          {/* Feed Content */}
+          <AnimatePresence>
+            {!isCollapsed && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="overflow-hidden"
+              >
+                <div className="max-h-64 overflow-y-auto p-2 space-y-2">
+                  {attacks.length === 0 ? (
+                    <div className="text-center py-8 text-ash font-mono text-sm">
+                      No attacks recorded yet. Run a demo to see activity.
+                    </div>
+                  ) : (
+                    <AnimatePresence mode="popLayout">
+                      {attacks.map((attack, index) => (
+                        <motion.div
+                          key={attack.id || `${attack.timestamp}-${index}`}
+                          initial={{ opacity: 0, x: -20, y: -10 }}
+                          animate={{ opacity: 1, x: 0, y: 0 }}
+                          exit={{ opacity: 0, x: 20 }}
+                          transition={{ duration: 0.3, delay: index * 0.05 }}
+                          className={`rounded-lg p-3 border ${
+                            attack.blocked
+                              ? 'bg-cyan/5 border-cyan/20'
+                              : 'bg-coral/5 border-coral/20'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            {/* Icon */}
+                            <div className={`mt-0.5 ${attack.blocked ? 'text-cyan' : 'text-coral'}`}>
+                              {attack.blocked ? (
+                                <Shield className="w-4 h-4" />
+                              ) : (
+                                <Unlock className="w-4 h-4" />
+                              )}
+                            </div>
+
+                            {/* Content */}
+                            <div className="flex-1 min-w-0">
+                              {/* Prompt */}
+                              <div className="text-white text-sm truncate mb-1 font-mono">
+                                {attack.prompt || 'Unknown prompt'}
+                              </div>
+
+                              {/* Details row */}
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono">
+                                {/* Reason */}
+                                <span className={attack.blocked ? 'text-cyan' : 'text-coral'}>
+                                  {attack.blocked
+                                    ? attack.reason || 'Blocked'
+                                    : 'All checks passed'}
+                                </span>
+
+                                {/* Vendor */}
+                                {attack.vendor && (
+                                  <span className="text-ash">
+                                    {attack.vendor}
+                                  </span>
+                                )}
+
+                                {/* Time */}
+                                <span className="text-ash ml-auto">
+                                  {formatRelativeTime(attack.timestamp)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </div>
+    </div>
+  )
+}
 
 function App() {
   const [gameMode, setGameMode] = useState('demo') // 'demo' or 'redteam'
@@ -272,6 +440,9 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Live Attack Feed */}
+      <AttackFeed />
 
       {/* Game Mode Toggle */}
       <div className="relative z-10 px-6 mb-6">

@@ -580,6 +580,76 @@ def export_csv():
     return response
 
 
+@app.route("/api/feed", methods=["GET"])
+def get_feed():
+    """
+    Get last 20 attacks for live feed.
+    Public endpoint - no authentication required.
+    """
+    # Try Postgres first
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT timestamp, prompt, bypassed, blocked_by, attack_vector, payload
+                FROM attacks
+                ORDER BY timestamp DESC
+                LIMIT 20
+            """)
+            rows = cur.fetchall()
+            conn.close()
+
+            attacks = []
+            for row in rows:
+                payload = row[5] or {}
+                attacks.append({
+                    "timestamp": row[0].isoformat() if row[0] else None,
+                    "prompt": row[1],
+                    "bypassed": row[2],
+                    "blocked_by": row[3],
+                    "attack_vector": row[4],
+                    "vendor": payload.get("vendor"),
+                })
+
+            return jsonify({"attacks": attacks})
+        except Exception as e:
+            print(f"DB feed error: {e}")
+
+    # Fallback to file
+    if not os.path.exists(ATTACK_LOG_FILE):
+        return jsonify({"attacks": []})
+
+    attacks = []
+    with open(ATTACK_LOG_FILE, "r") as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+                payload = entry.get("payload", {})
+
+                # Find blocked_by from checks if not present
+                blocked_by = entry.get("blocked_by")
+                if not blocked_by and not entry.get("bypassed") and not entry.get("approved"):
+                    for check in entry.get("checks", []):
+                        if not check.get("passed"):
+                            blocked_by = check.get("name")
+                            break
+
+                attacks.append({
+                    "timestamp": entry.get("timestamp"),
+                    "prompt": entry.get("prompt"),
+                    "bypassed": entry.get("bypassed", entry.get("approved", False)),
+                    "blocked_by": blocked_by,
+                    "attack_vector": entry.get("attack_vector"),
+                    "vendor": payload.get("vendor"),
+                })
+            except:
+                pass
+
+    # Return last 20 attacks, newest first
+    return jsonify({"attacks": attacks[-20:][::-1]})
+
+
 def _classify_attack(payload: dict) -> str:
     """Classify attack type without logging raw payload."""
     vectors = []
@@ -613,6 +683,7 @@ if __name__ == "__main__":
     print("    POST /api/demo       - Run demo (honest/compromised)")
     print("    POST /api/redteam    - Red team attack mode")
     print("    GET  /api/stats      - Attack statistics")
+    print("    GET  /api/feed       - Live attack feed (last 20)")
     print("    GET  /api/attacks    - Recent attempts (auth)")
     print("    GET  /api/export/csv - Export to CSV (auth)")
     print("")
