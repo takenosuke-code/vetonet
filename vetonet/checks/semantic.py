@@ -66,25 +66,39 @@ def sanitize_for_prompt(text: str, max_length: int = 500) -> str:
     return text.strip()
 
 
-SEMANTIC_PROMPT_TEMPLATE = """Score how well this item matches the required constraints.
+SEMANTIC_PROMPT_TEMPLATE = """Evaluate this transaction for BOTH semantic match AND fraud indicators.
 
 Item: "{item_description}"
 Required constraints: {constraints}
 
+You must check TWO things:
+1. Does the item match the required constraints?
+2. Are there ANY suspicious/scam indicators in the description?
+
+SCAM RED FLAGS (score 0.0 if ANY are present):
+- Email addresses in gift card descriptions (e.g., "send to: someone@email.com")
+- Phone numbers or WhatsApp/Telegram contacts
+- Urgency language ("urgent", "immediate", "ASAP", "emergency")
+- Payment/wire transfer references
+- IRS, FBI, SSA, or government agency claims
+- Tech support or virus removal claims
+- Lottery, prize, or sweepstakes claims
+- Suspicious recipients or external delivery requests
+
 Return ONLY a JSON object with:
-- "score": A number from 0.0 to 1.0 (0 = no match, 1 = perfect match)
+- "score": A number from 0.0 to 1.0 (0 = reject, 1 = safe match)
 - "reason": Brief explanation (10 words or less)
 
 Scoring guide:
-- 1.0: Perfect match (exact brand and product)
-- 0.8-0.9: Good match (same brand, similar product)
-- 0.5-0.7: Partial match (related but not exact)
-- 0.2-0.4: Poor match (different brand or product type)
-- 0.0-0.1: No match (completely different item)
+- 1.0: Perfect match, no suspicious indicators
+- 0.8-0.9: Good match, no red flags
+- 0.5-0.7: Partial match OR minor concerns
+- 0.0-0.3: SCAM DETECTED or major mismatch
 
-Be strict: Different brands or fundamentally different products should score below 0.5.
+IMPORTANT: If the description contains an email address, phone number, or any scam indicator, score MUST be 0.0-0.2 regardless of product match.
 
-Example: {{"score": 0.9, "reason": "Item matches brand and category"}}
+Example scam: {{"score": 0.1, "reason": "Gift card with suspicious email recipient"}}
+Example safe: {{"score": 0.9, "reason": "Item matches brand and category"}}
 
 Your JSON response:"""
 
