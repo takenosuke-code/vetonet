@@ -16,6 +16,7 @@ from vetonet.engine import VetoEngine
 from vetonet.models import AgentPayload, Fee, VetoStatus
 from vetonet.llm.client import create_client
 from vetonet.config import LLMConfig
+from vetonet import db as supabase_db
 from demo.shopping_agent import ShoppingAgent, AgentMode
 
 app = Flask(__name__)
@@ -139,39 +140,54 @@ def anonymize_data(data: dict) -> dict:
     return safe
 
 # ============== Database Setup ==============
+# Primary: Supabase (persistent, recommended)
+# Fallback: Railway Postgres or file
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_db():
-    """Get database connection."""
+    """Get legacy database connection (for backwards compatibility)."""
     if not DATABASE_URL:
         return None
     import psycopg2
     return psycopg2.connect(DATABASE_URL)
 
 def init_db():
-    """Create tables if they don't exist."""
-    if not DATABASE_URL:
-        print("  Database: None (using file fallback)")
-        return
+    """Initialize database connections."""
+    # Check Supabase first (preferred)
+    if SUPABASE_URL:
+        client = supabase_db.get_client()
+        if client:
+            print("  Database: Supabase (connected)")
+            return
 
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS attacks (
-            id SERIAL PRIMARY KEY,
-            timestamp TIMESTAMPTZ DEFAULT NOW(),
-            type VARCHAR(50),
-            prompt TEXT,
-            attack_vector VARCHAR(100),
-            bypassed BOOLEAN,
-            blocked_by VARCHAR(50),
-            checks JSONB,
-            payload JSONB
-        )
-    """)
-    conn.commit()
-    conn.close()
-    print("  Database: PostgreSQL (connected)")
+    # Fallback to Railway Postgres
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS attacks (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ DEFAULT NOW(),
+                    type VARCHAR(50),
+                    prompt TEXT,
+                    attack_vector VARCHAR(100),
+                    bypassed BOOLEAN,
+                    blocked_by VARCHAR(50),
+                    checks JSONB,
+                    payload JSONB
+                )
+            """)
+            conn.commit()
+            conn.close()
+            print("  Database: PostgreSQL (connected)")
+            return
+        except Exception as e:
+            print(f"  Database: PostgreSQL failed ({e})")
+
+    print("  Database: File fallback (data/attack_attempts.jsonl)")
 
 # Initialize database on startup
 try:
@@ -183,21 +199,46 @@ except Exception as e:
 ATTACK_LOG_FILE = "data/attack_attempts.jsonl"
 os.makedirs("data", exist_ok=True)
 
-def log_attempt(data):
-    """Log attack attempts to database (or file fallback)."""
+def log_attempt(data) -> str | None:
+    """
+    Log attack attempts to database.
+
+    Priority: Supabase > PostgreSQL > File
+
+    Returns attack_id if using Supabase, None otherwise.
+    """
+    # Find which check blocked it
+    blocked_by = None
+    if not data.get("bypassed") and not data.get("approved"):
+        for check in data.get("checks", []):
+            if not check.get("passed"):
+                blocked_by = check.get("name")
+                break
+
+    verdict = "approved" if data.get("bypassed") or data.get("approved") else "blocked"
+
+    # Try Supabase first (preferred)
+    if SUPABASE_URL:
+        attack_id = supabase_db.log_attack(
+            type=data.get("type"),
+            prompt=data.get("prompt"),
+            intent=data.get("intent"),
+            payload=data.get("payload"),
+            verdict=verdict,
+            blocked_by=blocked_by,
+            checks=data.get("checks"),
+            confidence=data.get("confidence"),
+            reasoning=data.get("reasoning"),
+            attack_vector=data.get("attack_vector"),
+        )
+        if attack_id:
+            return attack_id
+
+    # Fallback to Railway Postgres
     if DATABASE_URL:
         try:
             conn = get_db()
             cur = conn.cursor()
-
-            # Find which check blocked it
-            blocked_by = None
-            if not data.get("bypassed") and not data.get("approved"):
-                for check in data.get("checks", []):
-                    if not check.get("passed"):
-                        blocked_by = check.get("name")
-                        break
-
             cur.execute("""
                 INSERT INTO attacks (type, prompt, attack_vector, bypassed, blocked_by, checks, payload)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -212,13 +253,14 @@ def log_attempt(data):
             ))
             conn.commit()
             conn.close()
-            return
+            return None
         except Exception as e:
             print(f"DB Error: {e}")
 
     # Fallback to file
     with open(ATTACK_LOG_FILE, "a") as f:
         f.write(json.dumps(data) + "\n")
+    return None
 
 def format_checks(result):
     """Format check results for API response"""
@@ -283,18 +325,28 @@ def run_demo():
         result = engine.check(intent, payload)
         approved = result.status == VetoStatus.APPROVED
 
-        # Log for analysis (anonymized)
-        log_attempt(anonymize_data({
+        # Extract confidence from semantic check if available
+        confidence = None
+        reasoning = None
+        for check in result.checks:
+            if check.name == "semantic" and check.score is not None:
+                confidence = check.score
+                reasoning = check.reason
+
+        # Log for analysis (anonymized) - returns attack_id for feedback
+        attack_id = log_attempt(anonymize_data({
             "timestamp": datetime.now().isoformat(),
             "type": "demo",
             "prompt": user_prompt[:100],  # Truncate for safety
             "mode": mode,
             "intent": {"item_category": intent.item_category, "max_price": intent.max_price},
             "approved": approved,
-            "checks": [{"name": c.name, "passed": c.passed} for c in result.checks]
+            "checks": [{"name": c.name, "passed": c.passed, "score": c.score} for c in result.checks],
+            "confidence": confidence,
+            "reasoning": reasoning,
         }))
 
-        return jsonify({
+        response = {
             "intent": intent.model_dump(),
             "payload": payload.model_dump(),
             "result": {
@@ -302,7 +354,13 @@ def run_demo():
                 "message": result.reason,
                 "checks": format_checks(result)
             }
-        })
+        }
+
+        # Include attack_id for feedback (if using Supabase)
+        if attack_id:
+            response["attack_id"] = attack_id
+
+        return jsonify(response)
 
     except Exception as e:
         # SECURITY: Don't expose internal error details
@@ -355,23 +413,33 @@ def red_team():
         # Did the attack bypass VetoNet?
         bypassed = approved
 
+        # Extract confidence from semantic check if available
+        confidence = None
+        reasoning = None
+        for check in result.checks:
+            if check.name == "semantic" and check.score is not None:
+                confidence = check.score
+                reasoning = check.reason
+
         # Log attack attempt (with safe payload fields for analytics)
-        log_attempt(anonymize_data({
+        attack_id = log_attempt(anonymize_data({
             "timestamp": datetime.now().isoformat(),
             "type": "redteam",
             "prompt": user_prompt[:100],
             "attack_vector": _classify_attack(attack_payload),
             "bypassed": bypassed,
-            "checks": [{"name": c.name, "passed": c.passed} for c in result.checks],
+            "checks": [{"name": c.name, "passed": c.passed, "score": c.score} for c in result.checks],
             "payload": {
                 "unit_price": payload.unit_price,
                 "vendor": payload.vendor,
                 "item_category": payload.item_category,
                 "fees_total": sum(f.amount for f in payload.fees),
-            }
+            },
+            "confidence": confidence,
+            "reasoning": reasoning,
         }))
 
-        return jsonify({
+        response = {
             "intent": intent.model_dump(),
             "payload": payload.model_dump(),
             "bypassed": bypassed,
@@ -380,19 +448,74 @@ def red_team():
                 "message": result.reason,
                 "checks": format_checks(result)
             }
-        })
+        }
+
+        # Include attack_id for feedback (if using Supabase)
+        if attack_id:
+            response["attack_id"] = attack_id
+
+        return jsonify(response)
 
     except Exception as e:
         # SECURITY: Don't expose internal error details
         app.logger.error(f"Redteam error: {e}")
         return jsonify({"error": "Processing failed"}), 500
 
+
+@app.route("/api/feedback", methods=["POST"])
+def submit_feedback():
+    """
+    Submit user feedback on a verdict.
+
+    This is CRITICAL for building the data moat - labeled data
+    from real users telling us if we got it right or wrong.
+
+    Body: {
+        "attack_id": "uuid",
+        "feedback": "correct" | "false_positive" | "false_negative"
+    }
+
+    - correct: VetoNet made the right decision
+    - false_positive: VetoNet blocked a legitimate transaction
+    - false_negative: VetoNet approved a malicious transaction
+    """
+    data = request.json or {}
+
+    attack_id = data.get("attack_id")
+    feedback = data.get("feedback")
+
+    if not attack_id:
+        return jsonify({"error": "attack_id required"}), 400
+
+    if feedback not in ("correct", "false_positive", "false_negative"):
+        return jsonify({
+            "error": "feedback must be 'correct', 'false_positive', or 'false_negative'"
+        }), 400
+
+    # Submit to Supabase
+    if SUPABASE_URL:
+        success = supabase_db.submit_feedback(attack_id, feedback)
+        if success:
+            return jsonify({"status": "ok", "message": "Feedback recorded"})
+        else:
+            return jsonify({"error": "Failed to record feedback"}), 500
+
+    # No Supabase configured
+    return jsonify({"error": "Feedback storage not configured"}), 503
+
+
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     """
     Get attack statistics for dashboard
     """
-    # Try Postgres first
+    # Try Supabase first
+    if SUPABASE_URL:
+        stats = supabase_db.get_stats()
+        if stats.get("total_attempts", 0) > 0 or supabase_db.get_client():
+            return jsonify(stats)
+
+    # Fallback to Postgres
     if DATABASE_URL:
         try:
             conn = get_db()
@@ -523,13 +646,41 @@ def export_csv():
     output = StringIO()
     writer = csv.writer(output)
 
-    # Header row
+    # Header row (enhanced with feedback data)
     writer.writerow([
         "Timestamp", "Type", "Prompt", "Attack Vector",
-        "Bypassed", "Blocked By", "Unit Price", "Vendor"
+        "Verdict", "Blocked By", "Confidence", "Feedback",
+        "Unit Price", "Vendor"
     ])
 
-    # Try Postgres first
+    # Try Supabase first
+    if SUPABASE_URL:
+        attacks = supabase_db.get_attacks_for_export(limit=10000)
+        if attacks:
+            for a in attacks:
+                payload = a.get("payload") or {}
+                writer.writerow([
+                    a.get("created_at", ""),
+                    a.get("type", ""),
+                    a.get("prompt", ""),
+                    a.get("attack_vector", ""),
+                    a.get("verdict", ""),
+                    a.get("blocked_by", ""),
+                    a.get("confidence", ""),
+                    a.get("feedback", ""),
+                    payload.get("unit_price", ""),
+                    payload.get("vendor", ""),
+                ])
+
+            response = app.response_class(
+                response=output.getvalue(),
+                status=200,
+                mimetype='text/csv'
+            )
+            response.headers["Content-Disposition"] = "attachment; filename=vetonet_attacks.csv"
+            return response
+
+    # Fallback to Postgres
     if DATABASE_URL:
         try:
             conn = get_db()
@@ -592,7 +743,27 @@ def get_feed():
     Get last 20 attacks for live feed.
     Public endpoint - no authentication required.
     """
-    # Try Postgres first
+    # Try Supabase first
+    if SUPABASE_URL:
+        attacks = supabase_db.get_recent_attacks(limit=20)
+        if attacks or supabase_db.get_client():
+            # Transform to expected format
+            formatted = []
+            for a in attacks:
+                payload = a.get("payload") or {}
+                formatted.append({
+                    "id": a.get("id"),
+                    "timestamp": a.get("created_at"),
+                    "prompt": a.get("prompt"),
+                    "bypassed": a.get("verdict") == "approved",
+                    "blocked_by": a.get("blocked_by"),
+                    "attack_vector": a.get("attack_vector"),
+                    "vendor": payload.get("vendor"),
+                    "confidence": a.get("confidence"),
+                })
+            return jsonify({"attacks": formatted})
+
+    # Fallback to Postgres
     if DATABASE_URL:
         try:
             conn = get_db()
@@ -656,6 +827,81 @@ def get_feed():
     return jsonify({"attacks": attacks[-20:][::-1]})
 
 
+@app.route("/api/vectors", methods=["GET"])
+def get_vectors():
+    """
+    Get attack vector statistics for leaderboard.
+    Public endpoint - shows which attack types are most common.
+    """
+    # Try Supabase first
+    if SUPABASE_URL:
+        vectors = supabase_db.get_vector_stats()
+        if vectors or supabase_db.get_client():
+            return jsonify({"vectors": vectors})
+
+    # Fallback to Postgres
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    attack_vector,
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE bypassed = false) as blocked,
+                    COUNT(*) FILTER (WHERE bypassed = true) as bypassed
+                FROM attacks
+                WHERE attack_vector IS NOT NULL AND attack_vector != ''
+                GROUP BY attack_vector
+                ORDER BY total DESC
+                LIMIT 10
+            """)
+            rows = cur.fetchall()
+            conn.close()
+
+            vectors = []
+            for row in rows:
+                vectors.append({
+                    "vector": row[0],
+                    "total": row[1],
+                    "blocked": row[2],
+                    "bypassed": row[3]
+                })
+
+            return jsonify({"vectors": vectors})
+        except Exception as e:
+            print(f"DB vectors error: {e}")
+
+    # Fallback to file - aggregate from attack log
+    if not os.path.exists(ATTACK_LOG_FILE):
+        return jsonify({"vectors": []})
+
+    vector_stats = {}
+    with open(ATTACK_LOG_FILE, "r") as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+                vector = entry.get("attack_vector")
+                if vector:
+                    if vector not in vector_stats:
+                        vector_stats[vector] = {"total": 0, "blocked": 0, "bypassed": 0}
+                    vector_stats[vector]["total"] += 1
+                    if entry.get("bypassed") or entry.get("approved"):
+                        vector_stats[vector]["bypassed"] += 1
+                    else:
+                        vector_stats[vector]["blocked"] += 1
+            except:
+                pass
+
+    # Convert to list and sort by total
+    vectors = [
+        {"vector": k, **v}
+        for k, v in sorted(vector_stats.items(), key=lambda x: x[1]["total"], reverse=True)
+    ][:10]
+
+    return jsonify({"vectors": vectors})
+
+
 def _classify_attack(payload: dict) -> str:
     """Classify attack type without logging raw payload."""
     vectors = []
@@ -688,8 +934,10 @@ if __name__ == "__main__":
     print("  Endpoints:")
     print("    POST /api/demo       - Run demo (honest/compromised)")
     print("    POST /api/redteam    - Red team attack mode")
+    print("    POST /api/feedback   - Submit feedback (correct/false_positive/false_negative)")
     print("    GET  /api/stats      - Attack statistics")
     print("    GET  /api/feed       - Live attack feed (last 20)")
+    print("    GET  /api/vectors    - Attack vector leaderboard")
     print("    GET  /api/attacks    - Recent attempts (auth)")
     print("    GET  /api/export/csv - Export to CSV (auth)")
     print("")
