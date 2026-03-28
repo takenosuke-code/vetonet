@@ -64,12 +64,15 @@ function AttackFeed() {
       const res = await fetch(`${API_BASE}/feed`)
       if (res.ok) {
         const data = await res.json()
-        // Map API response to component format
-        const mapped = (data.attacks || []).slice(0, 10).map(a => ({
-          ...a,
-          blocked: !a.bypassed,
-          reason: a.blocked_by
-        }))
+        // Map API response - only show BLOCKED attacks for security demo
+        const mapped = (data.attacks || [])
+          .filter(a => !a.bypassed) // Only blocked attacks
+          .slice(0, 10)
+          .map(a => ({
+            ...a,
+            blocked: true,
+            reason: a.blocked_by || 'Security check failed'
+          }))
         setAttacks(mapped)
         setIsLive(true)
       }
