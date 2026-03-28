@@ -16,7 +16,7 @@ data/
 
 # Fuzzer/pentest result files (now stored in Supabase)
 *_results.json
-*_pentest_results.json
+*_pentest*.json
 fuzzer_results.json
 
 # CSV exports (attack data)
@@ -27,6 +27,7 @@ fuzzer_results.json
 scripts/mega_pentest.py
 scripts/elite_pentest.py
 scripts/advanced_pentest.py
+scripts/attack_agent.py
 
 # Credentials
 *.pypirc
