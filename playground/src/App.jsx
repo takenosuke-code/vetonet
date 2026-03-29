@@ -14,7 +14,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://web-production-fec907.
 
 // Supabase Configuration (anon key is safe for client-side)
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://tihvfpvgpdmoqjhdsyge.supabase.co'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpaHZmcHZncGRtb3FqaGRzeWdlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzNzk4MzAsImV4cCI6MjA1ODk1NTgzMH0.hJvE15VTMVC03i7dSf244DALvIXXWuhPtv7HbpPN6Vg'
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_l1AhHLPUeoeNgckmjkfRjA_URBjkeXH'
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 const SECURITY_CHECKS = [
