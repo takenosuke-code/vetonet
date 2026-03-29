@@ -20,10 +20,10 @@ from vetonet import db as supabase_db
 from demo.shopping_agent import ShoppingAgent, AgentMode
 
 app = Flask(__name__)
-CORS(app, origins=[
-    "https://vetonet-3jz7.vercel.app",
-    "http://localhost:5173",  # Local dev
-])
+
+# CORS origins from env or defaults
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://vetonet-3jz7.vercel.app,http://localhost:5173").split(",")
+CORS(app, origins=CORS_ORIGINS)
 
 # ============== LLM Configuration ==============
 # Railway/production: Use Groq (free, fast)
@@ -568,8 +568,8 @@ def get_stats():
                         blocked += 1
                 elif not entry.get("approved"):
                     blocked += 1
-            except:
-                pass
+            except (json.JSONDecodeError, KeyError):
+                continue
 
     return jsonify({
         "total_attempts": total,
@@ -626,8 +626,8 @@ def get_attacks():
         for line in f:
             try:
                 attacks.append(json.loads(line))
-            except:
-                pass
+            except (json.JSONDecodeError, KeyError):
+                continue
 
     # Return last 100 attacks, newest first
     return jsonify({"attacks": attacks[-100:][::-1]})
@@ -725,8 +725,8 @@ def export_csv():
                             payload.get("unit_price", ""),
                             payload.get("vendor", ""),
                         ])
-                    except:
-                        pass
+                    except (json.JSONDecodeError, KeyError):
+                        continue
 
     response = app.response_class(
         response=output.getvalue(),
@@ -820,8 +820,8 @@ def get_feed():
                     "attack_vector": entry.get("attack_vector"),
                     "vendor": payload.get("vendor"),
                 })
-            except:
-                pass
+            except (json.JSONDecodeError, KeyError):
+                continue
 
     # Return last 20 attacks, newest first
     return jsonify({"attacks": attacks[-20:][::-1]})
@@ -890,8 +890,8 @@ def get_vectors():
                         vector_stats[vector]["bypassed"] += 1
                     else:
                         vector_stats[vector]["blocked"] += 1
-            except:
-                pass
+            except (json.JSONDecodeError, KeyError):
+                continue
 
     # Convert to list and sort by total
     vectors = [
@@ -943,4 +943,4 @@ if __name__ == "__main__":
     print("")
     print("  Logs: data/attack_attempts.jsonl")
     print("")
-    app.run(debug=True, host="0.0.0.0", port=port)
+    app.run(debug=False, host="0.0.0.0", port=port)
