@@ -1403,17 +1403,18 @@ function App() {
 
   const fetchStats = async () => {
     try {
-      // Fetch stats directly from Supabase for accurate counts
-      const { data, error } = await supabase
-        .from('attacks')
-        .select('verdict, feedback')
+      // Use Supabase count queries to avoid 1000 row limit
+      const [totalRes, blockedRes, bypassedRes, feedbackRes] = await Promise.all([
+        supabase.from('attacks').select('*', { count: 'exact', head: true }),
+        supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'blocked'),
+        supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'approved'),
+        supabase.from('attacks').select('*', { count: 'exact', head: true }).not('feedback', 'is', null)
+      ])
 
-      if (error) throw error
-
-      const total = data?.length || 0
-      const blocked = data?.filter(r => r.verdict === 'blocked').length || 0
-      const bypassed = data?.filter(r => r.verdict === 'approved').length || 0
-      const feedbackCount = data?.filter(r => r.feedback).length || 0
+      const total = totalRes.count || 0
+      const blocked = blockedRes.count || 0
+      const bypassed = bypassedRes.count || 0
+      const feedbackCount = feedbackRes.count || 0
 
       setStats({
         total_attempts: total,
