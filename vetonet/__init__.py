@@ -31,6 +31,15 @@ class VetoNet:
         - "anthropic": Claude (requires api_key)
         - "openai": GPT-4 (requires api_key)
         - "none": Deterministic checks only, no LLM
+
+    Classifier:
+        - "local" (default): Use local ML classifier if available
+        - "hosted": Call VetoNet API for classification (logs anonymized data)
+        - "none": Skip ML classification
+
+    Telemetry:
+        - False (default): No telemetry
+        - True: Send anonymized attack patterns to improve classifier
     """
 
     def __init__(
@@ -39,6 +48,8 @@ class VetoNet:
         model: str | None = None,
         api_key: str | None = None,
         base_url: str | None = None,
+        classifier: str = "local",
+        telemetry: bool = False,
         **config_kwargs
     ):
         """
@@ -49,9 +60,13 @@ class VetoNet:
             model: Override default model for the provider
             api_key: API key for hosted providers (groq, anthropic, openai)
             base_url: Custom endpoint URL
+            classifier: "local", "hosted", or "none"
+            telemetry: Enable anonymous data collection (default False)
             **config_kwargs: Additional VetoConfig options
         """
         self.provider = provider
+        self.classifier_mode = classifier
+        self.telemetry_enabled = telemetry
 
         # Build LLM config
         default_models = {
@@ -132,7 +147,17 @@ class VetoNet:
             payload = AgentPayload(**payload)
 
         # Run the veto engine
-        return self.engine.check(intent, payload)
+        result = self.engine.check(intent, payload)
+
+        # Log telemetry if enabled
+        if self.telemetry_enabled:
+            try:
+                from vetonet.telemetry import log_telemetry
+                log_telemetry(intent, payload, result)
+            except Exception:
+                pass  # Don't fail on telemetry errors
+
+        return result
 
     def check(
         self,

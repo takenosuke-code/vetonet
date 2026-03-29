@@ -113,27 +113,6 @@ def check_category(
     )
 
 
-def check_currency(
-    anchor: IntentAnchor,
-    payload: AgentPayload,
-) -> CheckResult:
-    """
-    Check if transaction currency matches the intent.
-    """
-    if payload.currency.upper() != anchor.currency.upper():
-        return CheckResult(
-            name="currency",
-            passed=False,
-            reason=f"Currency mismatch: '{payload.currency}' != '{anchor.currency}'",
-        )
-
-    return CheckResult(
-        name="currency",
-        passed=True,
-        reason="Currency matches",
-    )
-
-
 def check_vendor(
     payload: AgentPayload,
     config: VetoConfig = DEFAULT_VETO_CONFIG,

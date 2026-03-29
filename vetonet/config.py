@@ -2,7 +2,7 @@
 Configuration and constants for VetoNet.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 

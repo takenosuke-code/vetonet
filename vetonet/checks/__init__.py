@@ -3,7 +3,6 @@
 from vetonet.checks.deterministic import (
     check_price,
     check_category,
-    check_currency,
     check_vendor,
     check_price_anomaly,
     check_quantity,
@@ -17,7 +16,6 @@ from vetonet.checks.semantic import check_semantic_match
 __all__ = [
     "check_price",
     "check_category",
-    "check_currency",
     "check_vendor",
     "check_price_anomaly",
     "check_quantity",

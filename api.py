@@ -288,6 +288,127 @@ def health():
         }
     })
 
+
+@app.route("/api/classify", methods=["POST"])
+def classify():
+    """
+    Remote classifier endpoint for SDK users.
+
+    SDK users can use their own LLM but call this endpoint for ML classification.
+    This allows VetoNet to collect anonymized attack data even from self-hosted users.
+
+    Body: {
+        "prompt": "$50 Amazon Gift Card",
+        "payload": {
+            "item_description": "Bitcoin mining contract",
+            "unit_price": 500,
+            "vendor": "crypto.xyz",
+            ...
+        }
+    }
+
+    Returns: {
+        "score": 0.15,  # 0-1 (higher = more legitimate)
+        "label": "attack" | "legitimate",
+        "confidence": 0.85
+    }
+    """
+    from vetonet.checks.classifier import check_classifier
+    from vetonet.models import IntentAnchor, AgentPayload
+
+    data = request.json or {}
+
+    # Validate input
+    valid, error = validate_payload(data)
+    if not valid:
+        return jsonify({"error": error}), 400
+
+    prompt = data.get("prompt", "")
+    payload_data = data.get("payload", {})
+
+    if not prompt:
+        return jsonify({"error": "prompt required"}), 400
+
+    # Check if classifier is available
+    if not is_classifier_available():
+        return jsonify({"error": "Classifier not available"}), 503
+
+    try:
+        # Normalize intent if LLM available, otherwise use basic extraction
+        if normalizer:
+            anchor = normalizer.normalize(prompt)
+        else:
+            # Basic fallback - extract category and price from prompt
+            anchor = IntentAnchor(
+                item_category=payload_data.get("item_category", "unknown"),
+                max_price=float(payload_data.get("unit_price", 100)),
+                currency="USD",
+                core_constraints=[]
+            )
+
+        # Build payload
+        payload = AgentPayload(
+            item_description=payload_data.get("item_description", ""),
+            item_category=payload_data.get("item_category", anchor.item_category),
+            unit_price=float(payload_data.get("unit_price", 0)),
+            quantity=int(payload_data.get("quantity", 1)),
+            vendor=payload_data.get("vendor", "unknown.com"),
+            currency=payload_data.get("currency", "USD"),
+            is_recurring=payload_data.get("is_recurring", False),
+            fees=[]
+        )
+
+        # Run classifier
+        result = check_classifier(anchor, payload, confidence_threshold=0.5)
+
+        if result is None:
+            # Classifier returned uncertain
+            return jsonify({
+                "score": 0.5,
+                "label": "uncertain",
+                "confidence": 0.5
+            })
+
+        # Log to telemetry (anonymized)
+        _log_classifier_call(anchor, payload, result)
+
+        return jsonify({
+            "score": result.score,
+            "label": "attack" if not result.passed else "legitimate",
+            "confidence": abs(result.score - 0.5) * 2  # Convert to 0-1 confidence
+        })
+
+    except Exception as e:
+        app.logger.error(f"Classify error: {e}")
+        return jsonify({"error": "Classification failed"}), 500
+
+
+def _log_classifier_call(anchor, payload, result):
+    """Log classifier call to Supabase telemetry (anonymized)."""
+    if not SUPABASE_URL:
+        return
+
+    try:
+        # Hash intent for privacy
+        intent_hash = hashlib.sha256(
+            f"{anchor.item_category}{anchor.max_price}".encode()
+        ).hexdigest()[:16]
+
+        data = {
+            "intent_hash": intent_hash,
+            "category": anchor.item_category,
+            "approved": result.passed,
+            "checks_failed": [result.name] if not result.passed else [],
+            "source": "hosted_classifier",
+            "classifier_score": result.score
+        }
+
+        client = supabase_db.get_client()
+        if client:
+            client.table("telemetry").insert(data).execute()
+    except Exception as e:
+        app.logger.error(f"Telemetry log error: {e}")
+
 @app.route("/api/demo", methods=["POST"])
 def run_demo():
     """
@@ -911,6 +1032,56 @@ def get_vectors():
     return jsonify({"vectors": vectors})
 
 
+@app.route("/api/telemetry", methods=["POST"])
+def receive_telemetry():
+    """
+    Receive telemetry from SDK users.
+
+    This endpoint accepts anonymized data from SDK users who have enabled telemetry.
+    Used to improve the classifier with real-world attack patterns.
+
+    Body: {
+        "intent_hash": "abc123...",  # SHA-256 hash, not raw intent
+        "category": "gift_card",
+        "price_bucket": "50-100",
+        "approved": false,
+        "checks_failed": ["price_limit"],
+        "classifier_score": 0.15,
+        "source": "sdk_telemetry"
+    }
+    """
+    data = request.json or {}
+
+    # Basic validation
+    if not data.get("intent_hash") or not data.get("source"):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    # Only accept known sources
+    valid_sources = ["sdk_telemetry", "hosted_classifier", "mcp", "x402", "world"]
+    if data.get("source") not in valid_sources:
+        return jsonify({"error": "Invalid source"}), 400
+
+    # Log to Supabase
+    if SUPABASE_URL:
+        try:
+            client = supabase_db.get_client()
+            if client:
+                client.table("telemetry").insert({
+                    "intent_hash": data.get("intent_hash", "")[:16],
+                    "category": data.get("category", "unknown")[:50],
+                    "price_bucket": data.get("price_bucket", "unknown"),
+                    "approved": bool(data.get("approved")),
+                    "checks_failed": data.get("checks_failed", [])[:10],
+                    "classifier_score": data.get("classifier_score"),
+                    "source": data.get("source")
+                }).execute()
+                return jsonify({"status": "ok"})
+        except Exception as e:
+            app.logger.error(f"Telemetry insert error: {e}")
+
+    return jsonify({"error": "Telemetry storage not available"}), 503
+
+
 def _classify_attack(payload: dict) -> str:
     """Classify attack type without logging raw payload."""
     vectors = []
@@ -943,7 +1114,9 @@ if __name__ == "__main__":
     print("  Endpoints:")
     print("    POST /api/demo       - Run demo (honest/compromised)")
     print("    POST /api/redteam    - Red team attack mode")
-    print("    POST /api/feedback   - Submit feedback (correct/false_positive/false_negative)")
+    print("    POST /api/classify   - Remote ML classifier (for SDK users)")
+    print("    POST /api/telemetry  - Receive SDK telemetry")
+    print("    POST /api/feedback   - Submit feedback")
     print("    GET  /api/stats      - Attack statistics")
     print("    GET  /api/feed       - Live attack feed (last 20)")
     print("    GET  /api/vectors    - Attack vector leaderboard")

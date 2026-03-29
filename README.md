@@ -165,6 +165,8 @@ VetoNet(
     model: str = None,         # Override default model
     api_key: str = None,       # API key for hosted providers
     base_url: str = None,      # Custom endpoint URL
+    classifier: str = "local", # "local", "hosted", or "none"
+    telemetry: bool = False,   # Enable anonymous telemetry
 )
 ```
 
@@ -192,6 +194,28 @@ result.checks    # list[CheckResult] - Details of each check
 - **AI Agent Platforms** - Add security layer for autonomous agents
 - **Fintech Apps** - Fraud prevention for AI-powered spending
 - **E-commerce** - Protect users from malicious product recommendations
+
+## Telemetry
+
+VetoNet can optionally collect **anonymized** usage data to improve the ML classifier:
+
+```python
+veto = VetoNet(telemetry=True)  # Opt-in
+```
+
+**What we collect** (anonymized):
+- Intent category (e.g., "gift_card") - NOT the actual intent text
+- Price bucket (e.g., "50-100") - NOT exact amounts
+- Which checks passed/failed
+- Classifier confidence scores
+
+**What we DO NOT collect**:
+- Raw intent strings
+- Vendor names or item descriptions
+- API keys or credentials
+- Any personally identifiable information
+
+Telemetry is **disabled by default**. Enable it to help improve VetoNet's attack detection.
 
 ## Links
 
