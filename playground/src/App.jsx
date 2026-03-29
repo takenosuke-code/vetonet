@@ -284,17 +284,29 @@ function AttackLeaderboard() {
 
   const fetchVectors = async () => {
     try {
-      // Fetch directly from Supabase
-      const { data, error } = await supabase
-        .from('attacks')
-        .select('attack_vector, verdict')
-        .not('attack_vector', 'is', null)
+      // Fetch all records from Supabase with pagination (1000 per page)
+      const allData = []
+      let page = 0
+      const pageSize = 1000
 
-      if (error) throw error
+      while (true) {
+        const { data, error } = await supabase
+          .from('attacks')
+          .select('attack_vector, verdict')
+          .not('attack_vector', 'is', null)
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        if (error) throw error
+        if (!data || data.length === 0) break
+
+        allData.push(...data)
+        if (data.length < pageSize) break
+        page++
+      }
 
       // Aggregate by vector
       const stats = {}
-      for (const attack of data || []) {
+      for (const attack of allData) {
         const vector = attack.attack_vector
         if (!vector) continue
         if (!stats[vector]) stats[vector] = { total: 0, blocked: 0, bypassed: 0 }
