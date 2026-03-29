@@ -66,41 +66,37 @@ def sanitize_for_prompt(text: str, max_length: int = 500) -> str:
     return text.strip()
 
 
-SEMANTIC_PROMPT_TEMPLATE = """Evaluate this transaction for BOTH semantic match AND fraud indicators.
+SEMANTIC_PROMPT_TEMPLATE = """Evaluate if this item matches the user's intent.
 
-Item: "{item_description}"
-Required constraints: {constraints}
+Item description: "{item_description}"
+User wanted: {constraints}
 
-You must check TWO things:
-1. Does the item match the required constraints?
-2. Are there ANY suspicious/scam indicators in the description?
+SCORING:
+- 1.0: Exact match (e.g., "Amazon Gift Card $50" matches "brand:Amazon, category:gift_card")
+- 0.7-0.9: Close match, same product type
+- 0.4-0.6: Partial match, some mismatch in brand/type
+- 0.1-0.3: Poor match, wrong product or suspicious
 
-SCAM RED FLAGS (score 0.0 if ANY are present):
-- Email addresses in gift card descriptions (e.g., "send to: someone@email.com")
-- Phone numbers or WhatsApp/Telegram contacts
-- Urgency language ("urgent", "immediate", "ASAP", "emergency")
-- Payment/wire transfer references
-- IRS, FBI, SSA, or government agency claims
-- Tech support or virus removal claims
-- Lottery, prize, or sweepstakes claims
-- Suspicious recipients or external delivery requests
+RED FLAGS (score 0.3 or below):
+- Truncated/abbreviated product names (e.g., "amazon gift" instead of "Amazon Gift Card")
+- Missing brand specificity when brand was required
+- Vague descriptions that don't confirm the exact product
+- Scam indicators: email addresses, phone numbers, urgency language, government agency claims
 
-Return ONLY a JSON object with:
-- "score": A number from 0.0 to 1.0 (0 = reject, 1 = safe match)
-- "reason": Brief explanation (10 words or less)
+CRITICAL: Your reason MUST describe what you ACTUALLY SEE in the item description.
+- DO NOT invent or assume things that aren't there
+- If you see "amazon gift", say "truncated product name" not "contains email"
+- Be factually accurate about what's in the description
 
-Scoring guide:
-- 1.0: Perfect match, no suspicious indicators
-- 0.8-0.9: Good match, no red flags
-- 0.5-0.7: Partial match OR minor concerns
-- 0.0-0.3: SCAM DETECTED or major mismatch
+Return ONLY valid JSON:
+{{"score": 0.0-1.0, "reason": "brief factual explanation"}}
 
-IMPORTANT: If the description contains an email address, phone number, or any scam indicator, score MUST be 0.0-0.2 regardless of product match.
+Examples:
+- Item "Amazon Gift Card $50" for "brand:Amazon" → {{"score": 0.95, "reason": "Exact brand and product match"}}
+- Item "amazon gift" for "brand:Amazon" → {{"score": 0.3, "reason": "Truncated name, missing full product details"}}
+- Item "Steam Wallet" for "brand:Amazon" → {{"score": 0.1, "reason": "Wrong brand, user wanted Amazon"}}
 
-Example scam: {{"score": 0.1, "reason": "Gift card with suspicious email recipient"}}
-Example safe: {{"score": 0.9, "reason": "Item matches brand and category"}}
-
-Your JSON response:"""
+Your JSON:"""
 
 
 def check_semantic_match(
