@@ -89,9 +89,16 @@ def generate_legitimate_dataset(n: int = 500) -> list:
         template = random.choice(LEGITIMATE_TRANSACTIONS)
         example = generate_variation(template)
 
-        # Format for training
-        payload_json = json.dumps(example["payload"])
-        text = f"{example['prompt']} | {payload_json}"
+        # Format for training - MUST match classifier.py format:
+        # f"{item_category} {max_price} {constraints} | {payload_json}"
+        p = example["payload"]
+        category = p.get("item_category", "item")
+        price = p.get("unit_price", 0)
+        constraints = f"brand:{p.get('vendor', '').split('.')[0]}" if p.get('vendor') else ""
+        normalized_prompt = f"{category} {price} {constraints}"
+
+        payload_json = json.dumps(example["payload"], sort_keys=True)
+        text = f"{normalized_prompt} | {payload_json}"
 
         examples.append({
             "text": text,

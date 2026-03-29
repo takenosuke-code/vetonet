@@ -17,6 +17,7 @@ from vetonet.models import AgentPayload, Fee, VetoStatus
 from vetonet.llm.client import create_client
 from vetonet.config import LLMConfig
 from vetonet import db as supabase_db
+from vetonet.checks.classifier import is_classifier_available, get_classifier_stats
 from demo.shopping_agent import ShoppingAgent, AgentMode
 
 app = Flask(__name__)
@@ -277,7 +278,15 @@ def format_checks(result):
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "engine": "vetonet"})
+    classifier_available = is_classifier_available()
+    return jsonify({
+        "status": "ok",
+        "engine": "vetonet",
+        "classifier": {
+            "available": classifier_available,
+            "stats": get_classifier_stats() if classifier_available else None
+        }
+    })
 
 @app.route("/api/demo", methods=["POST"])
 def run_demo():

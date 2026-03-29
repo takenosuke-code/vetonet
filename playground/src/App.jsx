@@ -4,7 +4,8 @@ import {
   Shield, ShieldAlert, ShieldCheck, AlertTriangle, CheckCircle2, XCircle,
   Bot, User, Lock, Play, RotateCcw, Swords, Target, Trophy, Skull, Unlock,
   ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, AlertCircle, Zap, Eye,
-  TrendingUp, BarChart3, Activity, Send, Sparkles, ArrowRight, ExternalLink
+  TrendingUp, BarChart3, Activity, Send, Sparkles, ArrowRight, ExternalLink,
+  DollarSign, CreditCard, Ban, CircleDollarSign
 } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 import './index.css'
@@ -36,6 +37,20 @@ const EXAMPLE_PROMPTS = [
   { text: 'Monthly Netflix subscription', category: 'subscription' },
 ]
 
+// Attack vector display names and colors
+const ATTACK_VECTOR_INFO = {
+  vendor_spoofing: { name: 'Vendor Spoofing', color: 'coral', icon: 'store' },
+  hidden_fees: { name: 'Hidden Fees', color: 'amber', icon: 'dollar' },
+  price_manipulation: { name: 'Price Manipulation', color: 'coral', icon: 'trending' },
+  quantity_manipulation: { name: 'Quantity Manipulation', color: 'amber', icon: 'hash' },
+  category_drift: { name: 'Category Drift', color: 'violet', icon: 'shuffle' },
+  currency_manipulation: { name: 'Currency Manipulation', color: 'coral', icon: 'currency' },
+  subscription_injection: { name: 'Subscription Injection', color: 'coral', icon: 'repeat' },
+  combo_attack: { name: 'Combo Attack', color: 'coral', icon: 'layers' },
+  random_combo: { name: 'Random Combo', color: 'coral', icon: 'shuffle' },
+  semantic_attack: { name: 'Semantic Attack', color: 'violet', icon: 'brain' },
+}
+
 // Staggered animation variants
 const stagger = {
   hidden: { opacity: 0 },
@@ -65,6 +80,159 @@ function formatRelativeTime(timestamp) {
   if (minutes < 60) return `${minutes}m ago`
   if (hours < 24) return `${hours}h ago`
   return `${days}d ago`
+}
+
+// =============================================================================
+// FAMOUS ATTACKS - Pre-loaded attack examples from Supabase
+// =============================================================================
+function FamousAttacks({ onSelectAttack, isExpanded, setIsExpanded }) {
+  const [attacks, setAttacks] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchFamousAttacks()
+  }, [])
+
+  const fetchFamousAttacks = async () => {
+    try {
+      // Fetch interesting attacks: high-value attempts, various vectors, some bypasses
+      const { data, error } = await supabase
+        .from('attacks')
+        .select('id, prompt, attack_vector, payload, verdict, blocked_by')
+        .not('attack_vector', 'is', null)
+        .not('prompt', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(100)
+
+      if (error) throw error
+
+      // Filter and dedupe to get interesting diverse examples
+      const seen = new Set()
+      const interesting = []
+
+      // Prioritize: bypasses first, then high-value, then variety of vectors
+      const sorted = [...(data || [])].sort((a, b) => {
+        // Bypasses are most interesting
+        if (a.verdict === 'approved' && b.verdict !== 'approved') return -1
+        if (b.verdict === 'approved' && a.verdict !== 'approved') return 1
+        // Then sort by payload value if available
+        const aPrice = a.payload?.unit_price || 0
+        const bPrice = b.payload?.unit_price || 0
+        return bPrice - aPrice
+      })
+
+      for (const attack of sorted) {
+        // Skip if we've seen this vector already (for variety)
+        const key = `${attack.attack_vector}-${attack.prompt?.substring(0, 30)}`
+        if (seen.has(key)) continue
+        seen.add(key)
+
+        // Skip very short or empty prompts
+        if (!attack.prompt || attack.prompt.length < 10) continue
+
+        interesting.push({
+          id: attack.id,
+          prompt: attack.prompt,
+          vector: attack.attack_vector,
+          payload: attack.payload,
+          bypassed: attack.verdict === 'approved',
+          blockedBy: attack.blocked_by
+        })
+
+        // Get max 8 examples
+        if (interesting.length >= 8) break
+      }
+
+      setAttacks(interesting)
+    } catch (e) {
+      console.error('Failed to fetch famous attacks:', e)
+      setAttacks([])
+    }
+    setLoading(false)
+  }
+
+  const getVectorInfo = (vector) => {
+    return ATTACK_VECTOR_INFO[vector] || { name: vector?.replace(/_/g, ' ') || 'Unknown', color: 'ash', icon: 'zap' }
+  }
+
+  if (loading) {
+    return (
+      <div className="mt-6 text-center">
+        <div className="text-ash text-sm">Loading attack examples...</div>
+      </div>
+    )
+  }
+
+  if (attacks.length === 0) return null
+
+  return (
+    <div className="mt-6">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center justify-center gap-2 text-sm text-smoke hover:text-white transition-colors mb-3"
+      >
+        <Swords className="w-4 h-4 text-coral" />
+        <span className="font-medium">Try Famous Attacks</span>
+        <span className="text-xs text-ash">({attacks.length} examples)</span>
+        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+      </button>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden"
+          >
+            <div className="grid gap-2 max-h-64 overflow-y-auto pr-1">
+              {attacks.map((attack, i) => {
+                const info = getVectorInfo(attack.vector)
+                return (
+                  <motion.button
+                    key={attack.id || i}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    onClick={() => onSelectAttack(attack)}
+                    className="w-full text-left px-4 py-3 rounded-xl bg-steel/20 border border-slate/30 hover:border-coral/40 hover:bg-steel/30 transition-all group"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        attack.bypassed ? 'bg-coral/20 text-coral' : 'bg-cyan/20 text-cyan'
+                      }`}>
+                        {attack.bypassed ? <Unlock className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-white truncate font-mono group-hover:text-coral transition-colors">
+                          {attack.prompt}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-xs px-2 py-0.5 rounded-full bg-${info.color}/10 text-${info.color} border border-${info.color}/20`}>
+                            {info.name}
+                          </span>
+                          {attack.bypassed && (
+                            <span className="text-xs text-coral font-medium">BYPASSED</span>
+                          )}
+                          {attack.payload?.unit_price && (
+                            <span className="text-xs text-ash">
+                              ${attack.payload.unit_price}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-ash group-hover:text-coral transition-colors mt-1 flex-shrink-0" />
+                    </div>
+                  </motion.button>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
 }
 
 // =============================================================================
@@ -199,6 +367,128 @@ function StatCard({ value, label, icon, color }) {
 }
 
 // =============================================================================
+// CHALLENGE BANNER SECTION - "Try to Hack It" Challenge Mode
+// =============================================================================
+function ChallengeBanner({ stats, onAcceptChallenge }) {
+  const bypassRate = stats.total_attempts > 0
+    ? ((stats.bypassed / stats.total_attempts) * 100).toFixed(1)
+    : 0
+
+  return (
+    <section className="relative z-10 px-6 py-8">
+      <div className="max-w-4xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="relative overflow-hidden rounded-3xl border-2 border-coral/40 bg-gradient-to-br from-coral/10 via-obsidian to-amber/5"
+        >
+          {/* Animated background pattern */}
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_30%_20%,rgba(255,99,99,0.3),transparent_40%)]" />
+            <div className="absolute top-0 right-0 w-full h-full bg-[radial-gradient(circle_at_70%_80%,rgba(255,183,77,0.3),transparent_40%)]" />
+          </div>
+
+          <div className="relative p-8 md:p-10">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
+              <div className="text-center md:text-left">
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-coral/20 border border-coral/40 text-coral text-xs font-mono uppercase tracking-wider mb-3"
+                >
+                  <Skull className="w-3 h-3" />
+                  Open Challenge
+                </motion.div>
+                <h2 className="text-3xl md:text-4xl font-bold text-white mb-2">
+                  Can You <span className="text-coral">Bypass</span> Our Firewall?
+                </h2>
+                <p className="text-smoke text-lg">
+                  Craft an attack payload that tricks VetoNet into approving a malicious transaction.
+                </p>
+              </div>
+
+              {/* Trophy Icon */}
+              <motion.div
+                animate={{
+                  rotate: [0, -5, 5, -5, 0],
+                  scale: [1, 1.05, 1]
+                }}
+                transition={{ duration: 3, repeat: Infinity }}
+                className="flex-shrink-0"
+              >
+                <div className="relative">
+                  <Trophy className="w-20 h-20 text-amber" strokeWidth={1} />
+                  <div className="absolute inset-0 bg-amber/30 blur-2xl rounded-full" />
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Challenge Scoreboard */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="rounded-xl bg-obsidian/60 border border-slate/40 p-4 text-center backdrop-blur-sm">
+                <div className="text-3xl font-bold text-white mb-1">{stats.total_attempts.toLocaleString()}</div>
+                <div className="text-xs text-ash font-mono uppercase tracking-wider flex items-center justify-center gap-1">
+                  <Target className="w-3 h-3" />
+                  Attempts
+                </div>
+              </div>
+              <div className="rounded-xl bg-obsidian/60 border border-lime/30 p-4 text-center backdrop-blur-sm">
+                <div className="text-3xl font-bold text-lime mb-1">{stats.blocked.toLocaleString()}</div>
+                <div className="text-xs text-ash font-mono uppercase tracking-wider flex items-center justify-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-lime" />
+                  Blocked
+                </div>
+              </div>
+              <div className="rounded-xl bg-obsidian/60 border border-coral/30 p-4 text-center backdrop-blur-sm">
+                <div className="text-3xl font-bold text-coral mb-1">{stats.bypassed}</div>
+                <div className="text-xs text-ash font-mono uppercase tracking-wider flex items-center justify-center gap-1">
+                  <Unlock className="w-3 h-3 text-coral" />
+                  Bypasses
+                </div>
+              </div>
+              <div className="rounded-xl bg-obsidian/60 border border-amber/30 p-4 text-center backdrop-blur-sm">
+                <div className="text-3xl font-bold text-amber mb-1">{bypassRate}%</div>
+                <div className="text-xs text-ash font-mono uppercase tracking-wider flex items-center justify-center gap-1">
+                  <Zap className="w-3 h-3 text-amber" />
+                  Success Rate
+                </div>
+              </div>
+            </div>
+
+            {/* Challenge CTA */}
+            <div className="text-center">
+              <motion.button
+                onClick={onAcceptChallenge}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-coral via-coral to-amber text-white font-bold text-lg shadow-lg shadow-coral/30 hover:shadow-xl hover:shadow-coral/40 transition-all"
+              >
+                <Swords className="w-6 h-6" />
+                Accept the Challenge
+                <ArrowRight className="w-5 h-5" />
+              </motion.button>
+              <p className="text-ash text-sm mt-3">
+                Only <span className="text-coral font-medium">{bypassRate}%</span> of attacks have succeeded. Think you can do better?
+              </p>
+            </div>
+
+            {/* Hall of Fame teaser */}
+            <div className="mt-8 pt-6 border-t border-slate/30">
+              <div className="flex items-center justify-center gap-2 text-sm text-smoke">
+                <Trophy className="w-4 h-4 text-amber" />
+                <span>Find a bypass? Your attack vector joins the leaderboard below.</span>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </section>
+  )
+}
+
+// =============================================================================
 // HOW IT WORKS SECTION
 // =============================================================================
 function HowItWorks() {
@@ -264,6 +554,291 @@ function HowItWorks() {
             </motion.div>
           ))}
         </div>
+      </div>
+    </section>
+  )
+}
+
+// =============================================================================
+// BEFORE/AFTER COMPARISON
+// =============================================================================
+function BeforeAfterComparison() {
+  const [showAfter, setShowAfter] = useState(false)
+
+  const scenario = {
+    userIntent: "$50 Amazon Gift Card",
+    withoutVetoNet: {
+      description: "Agent gets prompt-injected by malicious product listing",
+      item: "Amazon Gift Card $500 (SPECIAL DEAL!!!)",
+      price: 500,
+      vendor: "amaz0n-deals.xyz",
+      fees: [{ name: "Processing", amount: 29.99 }, { name: "Service", amount: 19.99 }],
+      total: 549.98,
+      recurring: true,
+      outcome: "User loses $549.98 + monthly charges"
+    },
+    withVetoNet: {
+      description: "VetoNet intercepts and blocks the fraudulent transaction",
+      item: "Amazon Gift Card $50",
+      price: 50,
+      vendor: "amazon.com",
+      fees: [],
+      total: 50,
+      recurring: false,
+      outcome: "User protected - attack blocked"
+    }
+  }
+
+  return (
+    <section className="relative z-10 px-6 py-16">
+      <div className="max-w-5xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="text-center mb-10"
+        >
+          <h2 className="text-3xl font-bold text-white mb-3">See the Difference</h2>
+          <p className="text-smoke max-w-xl mx-auto">
+            User asks for a <span className="text-cyan font-medium">$50 gift card</span>.
+            Watch what happens when the AI agent gets manipulated.
+          </p>
+        </motion.div>
+
+        {/* Toggle Switch */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="flex justify-center mb-8"
+        >
+          <div className="inline-flex p-1.5 rounded-2xl bg-steel/50 border border-slate/50 backdrop-blur-sm">
+            <button
+              onClick={() => setShowAfter(false)}
+              className={`px-6 py-3 rounded-xl font-medium text-sm transition-all flex items-center gap-2 ${
+                !showAfter
+                  ? 'bg-gradient-to-r from-coral/20 to-coral/10 text-coral border border-coral/30 shadow-lg shadow-coral/10'
+                  : 'text-smoke hover:text-white'
+              }`}
+            >
+              <Ban className="w-4 h-4" />
+              Without VetoNet
+            </button>
+            <button
+              onClick={() => setShowAfter(true)}
+              className={`px-6 py-3 rounded-xl font-medium text-sm transition-all flex items-center gap-2 ${
+                showAfter
+                  ? 'bg-gradient-to-r from-cyan/20 to-cyan/10 text-cyan border border-cyan/30 shadow-lg shadow-cyan/10'
+                  : 'text-smoke hover:text-white'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              With VetoNet
+            </button>
+          </div>
+        </motion.div>
+
+        {/* Comparison Cards */}
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* User Intent Card - Always shown */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true }}
+            className="glass-card rounded-2xl overflow-hidden border border-cyan/30"
+          >
+            <div className="px-5 py-4 border-b border-slate/50 bg-cyan/5 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-cyan/10 flex items-center justify-center">
+                <User className="w-5 h-5 text-cyan" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-white">User's Intent</h3>
+                <p className="text-xs text-smoke">What they actually wanted</p>
+              </div>
+            </div>
+            <div className="p-5">
+              <div className="flex items-center gap-3 mb-4">
+                <Lock className="w-5 h-5 text-cyan" />
+                <span className="text-lg font-medium text-white">{scenario.userIntent}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="bg-steel/30 rounded-xl p-3">
+                  <div className="text-ash text-xs mb-1">Expected Price</div>
+                  <div className="text-cyan font-bold text-xl">$50</div>
+                </div>
+                <div className="bg-steel/30 rounded-xl p-3">
+                  <div className="text-ash text-xs mb-1">Quantity</div>
+                  <div className="text-white font-bold text-xl">1</div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Result Card - Animated based on toggle */}
+          <AnimatePresence mode="wait">
+            {!showAfter ? (
+              <motion.div
+                key="without"
+                initial={{ opacity: 0, x: 20, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: -20, scale: 0.95 }}
+                transition={{ duration: 0.3 }}
+                className="glass-card rounded-2xl overflow-hidden border border-coral/30"
+              >
+                <div className="px-5 py-4 border-b border-coral/30 bg-coral/5 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-coral/10 flex items-center justify-center">
+                    <Skull className="w-5 h-5 text-coral" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-coral">Agent Compromised</h3>
+                    <p className="text-xs text-smoke">Prompt injection attack</p>
+                  </div>
+                </div>
+                <div className="p-5">
+                  <div className="text-sm text-smoke mb-4 italic">
+                    "{scenario.withoutVetoNet.description}"
+                  </div>
+
+                  <div className="space-y-3 mb-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-ash text-sm">Item:</span>
+                      <span className="text-coral font-mono text-sm">{scenario.withoutVetoNet.item}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-ash text-sm">Price:</span>
+                      <span className="text-coral font-bold">${scenario.withoutVetoNet.price}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-ash text-sm">Vendor:</span>
+                      <span className="text-coral font-mono text-sm">{scenario.withoutVetoNet.vendor}</span>
+                    </div>
+                    {scenario.withoutVetoNet.fees.map((fee, i) => (
+                      <div key={i} className="flex justify-between items-center text-coral/80">
+                        <span className="text-ash text-sm">+ {fee.name}:</span>
+                        <span className="font-mono text-sm">${fee.amount}</span>
+                      </div>
+                    ))}
+                    {scenario.withoutVetoNet.recurring && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-ash text-sm">Recurring:</span>
+                        <span className="text-coral font-bold text-sm flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          MONTHLY
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t border-coral/20 pt-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-white font-medium">Total Charged:</span>
+                      <span className="text-coral font-bold text-2xl">${scenario.withoutVetoNet.total}</span>
+                    </div>
+                    <div className="bg-coral/10 rounded-xl p-3 border border-coral/30">
+                      <div className="flex items-center gap-2 text-coral">
+                        <CreditCard className="w-5 h-5" />
+                        <span className="font-medium text-sm">{scenario.withoutVetoNet.outcome}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="with"
+                initial={{ opacity: 0, x: 20, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: -20, scale: 0.95 }}
+                transition={{ duration: 0.3 }}
+                className="glass-card rounded-2xl overflow-hidden border border-lime/30"
+              >
+                <div className="px-5 py-4 border-b border-lime/30 bg-lime/5 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-lime/10 flex items-center justify-center">
+                    <ShieldCheck className="w-5 h-5 text-lime" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-lime">Attack Blocked</h3>
+                    <p className="text-xs text-smoke">VetoNet intercepted the threat</p>
+                  </div>
+                </div>
+                <div className="p-5">
+                  <div className="text-sm text-smoke mb-4 italic">
+                    "{scenario.withVetoNet.description}"
+                  </div>
+
+                  {/* Attack attempt crossed out */}
+                  <div className="bg-coral/5 rounded-xl p-3 mb-4 border border-coral/20 relative overflow-hidden">
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-full h-0.5 bg-coral/50 rotate-[-5deg]"></div>
+                    </div>
+                    <div className="opacity-40 space-y-1 text-sm">
+                      <div className="text-coral font-mono">$500 + $49.98 fees</div>
+                      <div className="text-coral font-mono">amaz0n-deals.xyz</div>
+                    </div>
+                    <div className="absolute top-2 right-2 bg-coral/20 rounded-lg px-2 py-1">
+                      <span className="text-coral text-xs font-bold">VETOED</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 mb-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-ash text-sm">Item:</span>
+                      <span className="text-lime font-mono text-sm">{scenario.withVetoNet.item}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-ash text-sm">Price:</span>
+                      <span className="text-lime font-bold">${scenario.withVetoNet.price}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-ash text-sm">Vendor:</span>
+                      <span className="text-lime font-mono text-sm">{scenario.withVetoNet.vendor}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-ash text-sm">Hidden Fees:</span>
+                      <span className="text-lime font-bold text-sm">$0</span>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-lime/20 pt-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-white font-medium">Actual Cost:</span>
+                      <span className="text-lime font-bold text-2xl">${scenario.withVetoNet.total}</span>
+                    </div>
+                    <div className="bg-lime/10 rounded-xl p-3 border border-lime/30">
+                      <div className="flex items-center gap-2 text-lime">
+                        <Shield className="w-5 h-5" />
+                        <span className="font-medium text-sm">{scenario.withVetoNet.outcome}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Money Saved Highlight */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ delay: 0.2 }}
+          className="mt-8 text-center"
+        >
+          <div className="inline-flex items-center gap-4 px-6 py-4 rounded-2xl bg-gradient-to-r from-cyan/10 via-lime/10 to-cyan/10 border border-cyan/30">
+            <div className="text-left">
+              <div className="text-sm text-smoke">Money saved in this scenario</div>
+              <div className="text-3xl font-bold bg-gradient-to-r from-cyan to-lime bg-clip-text text-transparent">
+                $499.98
+              </div>
+            </div>
+            <div className="w-px h-12 bg-slate/50"></div>
+            <div className="text-left">
+              <div className="text-sm text-smoke">Price difference</div>
+              <div className="text-xl font-bold text-white">10x markup blocked</div>
+            </div>
+          </div>
+        </motion.div>
       </div>
     </section>
   )
@@ -644,8 +1219,8 @@ function FeedbackButtons({ attackId, onFeedback }) {
 // =============================================================================
 // MAIN PLAYGROUND
 // =============================================================================
-function Playground({ stats, fetchStats }) {
-  const [gameMode, setGameMode] = useState('demo')
+function Playground({ stats, fetchStats, playgroundRef, initialMode }) {
+  const [gameMode, setGameMode] = useState(initialMode || 'demo')
   const [prompt, setPrompt] = useState('$50 Amazon Gift Card')
   const [mode, setMode] = useState('honest')
   const [phase, setPhase] = useState('idle')
@@ -653,6 +1228,13 @@ function Playground({ stats, fetchStats }) {
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [attackId, setAttackId] = useState(null)
+
+  // Sync with external mode changes (from ChallengeBanner)
+  useEffect(() => {
+    if (initialMode) {
+      setGameMode(initialMode)
+    }
+  }, [initialMode])
 
   // Red team payload state
   const [attackPayload, setAttackPayload] = useState({
@@ -816,7 +1398,7 @@ function Playground({ stats, fetchStats }) {
   }
 
   return (
-    <section className="relative z-10 px-6 py-12">
+    <section ref={playgroundRef} className="relative z-10 px-6 py-12">
       <div className="max-w-5xl mx-auto">
         {/* Mode Toggle */}
         <motion.div
@@ -900,6 +1482,14 @@ function Playground({ stats, fetchStats }) {
 // DEMO MODE
 // =============================================================================
 function DemoMode({ prompt, setPrompt, mode, setMode, phase, currentCheck, result, runDemo, reset, error, attackId }) {
+  const [showFamousAttacks, setShowFamousAttacks] = useState(false)
+
+  const handleSelectAttack = (attack) => {
+    setPrompt(attack.prompt)
+    setMode('compromised') // Switch to compromised mode for attack examples
+    setShowFamousAttacks(false)
+  }
+
   return (
     <>
       {/* Agent Mode Toggle */}
@@ -984,6 +1574,13 @@ function DemoMode({ prompt, setPrompt, mode, setMode, phase, currentCheck, resul
             </button>
           ))}
         </div>
+
+        {/* Famous Attacks from Supabase */}
+        <FamousAttacks
+          onSelectAttack={handleSelectAttack}
+          isExpanded={showFamousAttacks}
+          setIsExpanded={setShowFamousAttacks}
+        />
       </div>
 
       {/* Results */}
@@ -993,19 +1590,28 @@ function DemoMode({ prompt, setPrompt, mode, setMode, phase, currentCheck, resul
 }
 
 // =============================================================================
-// RED TEAM MODE
+// RED TEAM MODE - Hacking Challenge Interface
 // =============================================================================
 function RedTeamMode({ prompt, setPrompt, attackPayload, setAttackPayload, newFee, setNewFee, addFee, phase, currentCheck, result, runRedTeam, reset, error, attackId }) {
   return (
     <>
-      {/* Challenge Header */}
+      {/* Challenge Header - Game-like framing */}
       <div className="text-center mb-6">
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-coral/10 border border-coral/30 text-coral font-medium text-sm mb-3">
-          <Target className="w-4 h-4" />
-          CHALLENGE: Bypass VetoNet
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-coral/20 to-amber/10 border border-coral/40 text-coral font-bold text-sm mb-3"
+        >
+          <Skull className="w-5 h-5" />
+          HACKER MODE ACTIVATED
+          <Skull className="w-5 h-5" />
+        </motion.div>
+        <h3 className="text-2xl font-bold text-white mb-2">
+          Try to Break Our AI Firewall
+        </h3>
         <p className="text-smoke text-sm max-w-xl mx-auto">
-          Craft a malicious payload that tricks VetoNet into approving a transaction that doesn't match the user's intent.
+          You are a prompt injection attacker. The user wants one thing, but you control what the AI agent actually purchases.
+          <span className="text-coral font-medium"> Can you slip past VetoNet's 9 security checks?</span>
         </p>
       </div>
 
@@ -1122,31 +1728,38 @@ function RedTeamMode({ prompt, setPrompt, attackPayload, setAttackPayload, newFe
         </motion.div>
       )}
 
-      {/* Launch Button */}
+      {/* Launch Button - Big, prominent CTA */}
       <div className="text-center mb-6">
-        <button
+        <motion.button
           onClick={phase === 'idle' ? runRedTeam : reset}
           disabled={phase !== 'idle' && phase !== 'result'}
-          className={`px-8 py-3.5 rounded-2xl font-medium transition-all flex items-center gap-2 mx-auto ${
-            phase === 'idle' || phase === 'result'
-              ? 'bg-gradient-to-r from-coral to-coral/80 text-white hover:shadow-lg hover:shadow-coral/20'
+          whileHover={{ scale: phase === 'idle' || phase === 'result' ? 1.03 : 1 }}
+          whileTap={{ scale: phase === 'idle' || phase === 'result' ? 0.97 : 1 }}
+          className={`px-10 py-4 rounded-2xl font-bold text-lg transition-all flex items-center gap-3 mx-auto ${
+            phase === 'idle'
+              ? 'bg-gradient-to-r from-coral via-coral to-amber text-white shadow-lg shadow-coral/30 hover:shadow-xl hover:shadow-coral/40'
+              : phase === 'result'
+              ? 'bg-gradient-to-r from-slate to-steel text-white hover:from-coral hover:to-coral/80'
               : 'bg-slate text-ash cursor-not-allowed'
           }`}
         >
           {phase === 'idle' ? (
-            <><Swords className="w-5 h-5" /> Launch Attack</>
+            <><Swords className="w-6 h-6" /> Execute Attack</>
           ) : phase === 'result' ? (
-            <><RotateCcw className="w-5 h-5" /> Try Again</>
+            <><RotateCcw className="w-5 h-5" /> Try Another Attack</>
           ) : (
-            <><Activity className="w-5 h-5 animate-pulse" /> Attacking...</>
+            <><Activity className="w-5 h-5 animate-pulse" /> Bypassing defenses...</>
           )}
-        </button>
+        </motion.button>
+        {phase === 'idle' && (
+          <p className="text-ash text-xs mt-2">Press to see if your payload slips through</p>
+        )}
       </div>
 
       {/* Results */}
       <ResultsDisplay phase={phase} currentCheck={currentCheck} result={result} isRedTeam={true} attackId={attackId} />
 
-      {/* Victory/Defeat */}
+      {/* Victory/Defeat - Game-style feedback */}
       <AnimatePresence>
         {phase === 'result' && result && (
           <motion.div
@@ -1155,19 +1768,44 @@ function RedTeamMode({ prompt, setPrompt, attackPayload, setAttackPayload, newFe
             className="mt-6 text-center"
           >
             {result.bypassed || result.result?.approved ? (
-              <div className="inline-flex flex-col items-center gap-2 px-6 py-4 rounded-2xl bg-amber/10 border border-amber/30">
-                <div className="flex items-center gap-3">
-                  <Trophy className="w-6 h-6 text-amber" />
-                  <span className="text-amber font-bold text-lg">TRANSACTION APPROVED</span>
-                </div>
-                <span className="text-smoke text-sm">Your payload matched the intent - try crafting a malicious one!</span>
-              </div>
+              <motion.div
+                initial={{ y: 20 }}
+                animate={{ y: 0 }}
+                className="inline-flex flex-col items-center gap-3 px-8 py-6 rounded-2xl bg-gradient-to-br from-coral/20 to-amber/10 border-2 border-coral/50"
+              >
+                <motion.div
+                  animate={{ rotate: [0, -10, 10, -10, 0], scale: [1, 1.1, 1] }}
+                  transition={{ duration: 0.5 }}
+                  className="flex items-center gap-3"
+                >
+                  <Trophy className="w-8 h-8 text-amber" />
+                  <span className="text-coral font-black text-2xl tracking-tight">YOU WIN!</span>
+                  <Trophy className="w-8 h-8 text-amber" />
+                </motion.div>
+                <p className="text-white text-sm font-medium">
+                  You bypassed VetoNet! Your attack vector has been recorded.
+                </p>
+                <p className="text-ash text-xs">
+                  Think you found a real vulnerability? Report it to help us improve.
+                </p>
+              </motion.div>
             ) : (
-              <div className="inline-flex items-center gap-3 px-6 py-4 rounded-2xl bg-lime/10 border border-lime/30">
-                <ShieldCheck className="w-6 h-6 text-lime" />
-                <span className="text-lime font-bold text-lg">ATTACK BLOCKED</span>
-                <span className="text-smoke text-sm">VetoNet caught the drift!</span>
-              </div>
+              <motion.div
+                initial={{ y: 20 }}
+                animate={{ y: 0 }}
+                className="inline-flex flex-col items-center gap-3 px-8 py-6 rounded-2xl bg-gradient-to-br from-lime/10 to-cyan/5 border-2 border-lime/40"
+              >
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className="w-8 h-8 text-lime" />
+                  <span className="text-lime font-black text-2xl tracking-tight">BLOCKED!</span>
+                </div>
+                <p className="text-white text-sm font-medium">
+                  VetoNet caught your attack. The firewall holds strong.
+                </p>
+                <p className="text-ash text-xs">
+                  Hint: Try hidden fees, vendor spoofing, or category drift. Get creative!
+                </p>
+              </motion.div>
             )}
           </motion.div>
         )}
@@ -1311,10 +1949,10 @@ function ResultsDisplay({ phase, currentCheck, result, mode, isRedTeam, attackId
                   ) : (
                     <div className="w-5 h-5 mx-auto rounded-full border-2 border-slate/50" />
                   )}
-                  <div className={`font-mono text-[10px] mt-1.5 ${
+                  <div className={`font-mono text-[10px] mt-1.5 truncate w-full px-0.5 ${
                     failed ? 'text-coral' : isActive ? 'text-white' : 'text-ash'
-                  }`}>
-                    {check.name}
+                  }`} title={check.name}>
+                    {check.name.replace(/_/g, ' ')}
                   </div>
                 </motion.div>
               )
@@ -1406,6 +2044,16 @@ function App() {
     bypassed: 0,
     bypass_rate: 0
   })
+  const [challengeMode, setChallengeMode] = useState(null)
+  const playgroundRef = useRef(null)
+
+  const handleAcceptChallenge = () => {
+    setChallengeMode('redteam')
+    // Scroll to playground
+    setTimeout(() => {
+      playgroundRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 100)
+  }
 
   useEffect(() => {
     fetchStats()
@@ -1466,7 +2114,9 @@ function App() {
     <div className="min-h-screen bg-void grid-bg relative noise">
       <HeroSection stats={stats} />
       <HowItWorks />
-      <Playground stats={stats} fetchStats={fetchStats} />
+      <BeforeAfterComparison />
+      <ChallengeBanner stats={stats} onAcceptChallenge={handleAcceptChallenge} />
+      <Playground stats={stats} fetchStats={fetchStats} playgroundRef={playgroundRef} initialMode={challengeMode} />
       <AttackLeaderboard />
       <LiveFeed />
       <Footer />

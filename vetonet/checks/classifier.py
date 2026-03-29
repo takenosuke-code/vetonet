@@ -34,6 +34,39 @@ def _get_model_path() -> Path:
     return package_dir / 'models' / 'attack_classifier.pkl'
 
 
+def _download_from_supabase(model_path: Path) -> bool:
+    """Download model from Supabase Storage if not found locally."""
+    try:
+        from supabase import create_client
+
+        url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
+
+        if not url or not key:
+            logger.warning("Supabase credentials not set, cannot download model")
+            return False
+
+        logger.info("Downloading classifier model from Supabase Storage...")
+        client = create_client(url, key)
+
+        # Download from storage
+        data = client.storage.from_('models').download('attack_classifier.pkl')
+
+        # Ensure directory exists
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Save to local file
+        with open(model_path, 'wb') as f:
+            f.write(data)
+
+        logger.info(f"Model downloaded to {model_path} ({len(data)/1024:.1f} KB)")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to download model from Supabase: {e}")
+        return False
+
+
 def _load_model() -> bool:
     """
     Lazily load the ML model and embedder.
@@ -52,9 +85,12 @@ def _load_model() -> bool:
 
         model_path = _get_model_path()
 
+        # If model doesn't exist locally, try to download from Supabase
         if not model_path.exists():
-            logger.warning(f"Classifier model not found at {model_path}")
-            return False
+            logger.info(f"Model not found at {model_path}, checking Supabase...")
+            if not _download_from_supabase(model_path):
+                logger.warning("Could not load classifier model")
+                return False
 
         logger.info(f"Loading classifier model from {model_path}")
 
@@ -111,7 +147,9 @@ def check_classifier(
         # Prepare text for embedding (same format as training)
         prompt_text = f"{anchor.item_category} {anchor.max_price} {' '.join(anchor.core_constraints)}"
         payload_dict = payload.model_dump() if hasattr(payload, 'model_dump') else payload.dict()
-        payload_json = json.dumps(payload_dict, default=str)
+        # Remove metadata field and sort keys for consistent formatting with training data
+        payload_dict.pop('metadata', None)
+        payload_json = json.dumps(payload_dict, sort_keys=True, default=str)
 
         text = f"{prompt_text} | {payload_json}"
 

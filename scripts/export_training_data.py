@@ -85,9 +85,23 @@ def format_for_training(attacks: list) -> list:
         # Since all our data is attack testing, label=1 for ALL
         label = 1  # All attack test data is attacks, including bypasses
 
-        # Combine prompt and payload into text for embedding
-        payload_str = json.dumps(payload) if isinstance(payload, dict) else str(payload)
-        text = f"{prompt} | {payload_str}"
+        # Format text to match classifier.py production format:
+        # f"{item_category} {max_price} {constraints} | {payload_json}"
+        # We derive this from the payload since we don't have the normalized anchor
+        if isinstance(payload, dict):
+            category = payload.get('item_category', 'item')
+            price = payload.get('unit_price', 0)
+            vendor = payload.get('vendor', '')
+            constraints = f"brand:{vendor.split('.')[0]}" if vendor else ""
+            normalized_prompt = f"{category} {price} {constraints}"
+            # Remove metadata and sort keys for consistent formatting
+            payload_clean = {k: v for k, v in payload.items() if k != 'metadata'}
+            payload_str = json.dumps(payload_clean, sort_keys=True)
+        else:
+            normalized_prompt = prompt  # Fallback to raw prompt
+            payload_str = str(payload)
+
+        text = f"{normalized_prompt} | {payload_str}"
 
         training_data.append({
             'text': text,
