@@ -6,10 +6,16 @@ import {
   ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, AlertCircle, Zap, Eye,
   TrendingUp, BarChart3, Activity, Send, Sparkles, ArrowRight, ExternalLink
 } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
 import './index.css'
 
 // API Configuration
 const API_BASE = import.meta.env.VITE_API_URL || 'https://web-production-fec907.up.railway.app/api'
+
+// Supabase Configuration (anon key is safe for client-side)
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://tihvfpvgpdmoqjhdsyge.supabase.co'
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpaHZmcHZncGRtb3FqaGRzeWdlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzNzk4MzAsImV4cCI6MjA1ODk1NTgzMH0.hJvE15VTMVC03i7dSf244DALvIXXWuhPtv7HbpPN6Vg'
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 const SECURITY_CHECKS = [
   { id: 'price', name: 'Price Limit', desc: 'Total within bounds' },
@@ -278,20 +284,43 @@ function AttackLeaderboard() {
 
   const fetchVectors = async () => {
     try {
-      const res = await fetch(`${API_BASE}/vectors`)
-      if (res.ok) {
-        const data = await res.json()
-        setVectors(data.vectors || [])
+      // Fetch directly from Supabase
+      const { data, error } = await supabase
+        .from('attacks')
+        .select('attack_vector, verdict')
+        .not('attack_vector', 'is', null)
+
+      if (error) throw error
+
+      // Aggregate by vector
+      const stats = {}
+      for (const attack of data || []) {
+        const vector = attack.attack_vector
+        if (!vector) continue
+        if (!stats[vector]) stats[vector] = { total: 0, blocked: 0, bypassed: 0 }
+        stats[vector].total++
+        if (attack.verdict === 'approved') stats[vector].bypassed++
+        else stats[vector].blocked++
       }
+
+      // Convert to sorted array
+      const vectorList = Object.entries(stats)
+        .map(([vector, s]) => ({ vector, ...s }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10)
+
+      setVectors(vectorList)
     } catch (e) {
-      // Use mock data
-      setVectors([
-        { vector: 'encoding_attack', total: 150, blocked: 142, bypassed: 8 },
-        { vector: 'hidden_fees', total: 120, blocked: 115, bypassed: 5 },
-        { vector: 'vendor_spoof', total: 98, blocked: 96, bypassed: 2 },
-        { vector: 'semantic_bypass', total: 87, blocked: 72, bypassed: 15 },
-        { vector: 'price_manipulation', total: 65, blocked: 63, bypassed: 2 },
-      ])
+      // Fallback to API
+      try {
+        const res = await fetch(`${API_BASE}/vectors`)
+        if (res.ok) {
+          const data = await res.json()
+          setVectors(data.vectors || [])
+        }
+      } catch {
+        setVectors([])
+      }
     }
     setLoading(false)
   }
@@ -396,21 +425,46 @@ function LiveFeed() {
 
   const fetchAttacks = async () => {
     try {
-      const res = await fetch(`${API_BASE}/feed`)
-      if (res.ok) {
-        const data = await res.json()
-        const mapped = (data.attacks || [])
-          .slice(0, 8)
-          .map(a => ({
-            ...a,
-            blocked: !a.bypassed,
-            reason: a.blocked_by || (a.bypassed ? 'Bypassed' : 'Security check')
-          }))
-        setAttacks(mapped)
-        setIsLive(true)
-      }
+      // Fetch directly from Supabase
+      const { data, error } = await supabase
+        .from('attacks')
+        .select('id, created_at, prompt, verdict, blocked_by, attack_vector, payload')
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      if (error) throw error
+
+      const mapped = (data || []).map(a => ({
+        id: a.id,
+        timestamp: a.created_at,
+        prompt: a.prompt,
+        blocked: a.verdict === 'blocked',
+        bypassed: a.verdict === 'approved',
+        reason: a.blocked_by || (a.verdict === 'approved' ? 'Bypassed' : 'Security check'),
+        attack_vector: a.attack_vector,
+        vendor: a.payload?.vendor
+      }))
+      setAttacks(mapped)
+      setIsLive(true)
     } catch (e) {
-      setIsLive(false)
+      // Fallback to Railway API
+      try {
+        const res = await fetch(`${API_BASE}/feed`)
+        if (res.ok) {
+          const data = await res.json()
+          const mapped = (data.attacks || [])
+            .slice(0, 8)
+            .map(a => ({
+              ...a,
+              blocked: !a.bypassed,
+              reason: a.blocked_by || (a.bypassed ? 'Bypassed' : 'Security check')
+            }))
+          setAttacks(mapped)
+          setIsLive(true)
+        }
+      } catch {
+        setIsLive(false)
+      }
     }
   }
 
@@ -1349,13 +1403,36 @@ function App() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch(`${API_BASE}/stats`)
-      if (res.ok) {
-        const data = await res.json()
-        setStats(data)
-      }
+      // Fetch stats directly from Supabase for accurate counts
+      const { data, error } = await supabase
+        .from('attacks')
+        .select('verdict, feedback')
+
+      if (error) throw error
+
+      const total = data?.length || 0
+      const blocked = data?.filter(r => r.verdict === 'blocked').length || 0
+      const bypassed = data?.filter(r => r.verdict === 'approved').length || 0
+      const feedbackCount = data?.filter(r => r.feedback).length || 0
+
+      setStats({
+        total_attempts: total,
+        blocked: blocked,
+        bypassed: bypassed,
+        bypass_rate: total > 0 ? ((bypassed / total) * 100).toFixed(1) : 0,
+        feedback_count: feedbackCount
+      })
     } catch (e) {
-      // API unavailable
+      // Fallback to Railway API if Supabase fails
+      try {
+        const res = await fetch(`${API_BASE}/stats`)
+        if (res.ok) {
+          const data = await res.json()
+          setStats(data)
+        }
+      } catch {
+        // Both failed
+      }
     }
   }
 
