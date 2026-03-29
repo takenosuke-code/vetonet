@@ -19,6 +19,11 @@ private/
 data/
 *.jsonl
 
+# Trained ML models (proprietary)
+models/
+*.pkl
+*.gguf
+
 # All result files (attack data)
 *_results.json
 *_results.csv

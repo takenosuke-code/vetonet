@@ -10,7 +10,6 @@ from vetonet.llm.client import LLMClient, create_client
 from vetonet.checks import (
     check_price,
     check_category,
-    check_currency,
     check_vendor,
     check_price_anomaly,
     check_quantity,
@@ -20,6 +19,7 @@ from vetonet.checks import (
     check_scam_patterns,
     check_semantic_match,
 )
+from vetonet.checks.classifier import check_classifier, is_classifier_available
 
 
 class VetoEngine:
@@ -39,7 +39,8 @@ class VetoEngine:
     7. Vendor check (deterministic)
     8. Price anomaly check (deterministic)
     9. Scam patterns check (deterministic)
-    10. Semantic match (LLM-based)
+    10. ML Classifier (fast CPU-based pre-filter)
+    11. Semantic match (LLM-based, only for uncertain cases)
     """
 
     def __init__(
@@ -95,7 +96,30 @@ class VetoEngine:
                     checks=checks,
                 )
 
-        # Run semantic check last (slower, uses LLM)
+        # Run ML classifier check (fast, runs on CPU)
+        # This is a pre-filter before the expensive LLM semantic check
+        classifier_result = check_classifier(anchor, payload)
+
+        if classifier_result is not None:
+            checks.append(classifier_result)
+
+            if not classifier_result.passed:
+                # Classifier confidently detected an attack
+                return VetoResult(
+                    status=VetoStatus.VETO,
+                    reason=classifier_result.reason,
+                    checks=checks,
+                )
+
+            # Classifier confidently approved - skip LLM check
+            if classifier_result.score and classifier_result.score >= 0.85:
+                return VetoResult(
+                    status=VetoStatus.APPROVED,
+                    reason="ML classifier approved",
+                    checks=checks,
+                )
+
+        # Run semantic check for uncertain cases (slower, uses LLM)
         if anchor.core_constraints:
             semantic_result = check_semantic_match(
                 anchor,
