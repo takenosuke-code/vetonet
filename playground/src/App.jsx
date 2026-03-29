@@ -1403,34 +1403,47 @@ function App() {
 
   const fetchStats = async () => {
     try {
-      // Use Supabase count queries to avoid 1000 row limit
-      const [totalRes, blockedRes, bypassedRes, feedbackRes] = await Promise.all([
-        supabase.from('attacks').select('*', { count: 'exact', head: true }),
-        supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'blocked'),
-        supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'approved'),
-        supabase.from('attacks').select('*', { count: 'exact', head: true }).not('feedback', 'is', null)
-      ])
-
-      const total = totalRes.count || 0
-      const blocked = blockedRes.count || 0
-      const bypassed = bypassedRes.count || 0
-      const feedbackCount = feedbackRes.count || 0
-
-      setStats({
-        total_attempts: total,
-        blocked: blocked,
-        bypassed: bypassed,
-        bypass_rate: total > 0 ? ((bypassed / total) * 100).toFixed(1) : 0,
-        feedback_count: feedbackCount
-      })
-    } catch (e) {
-      // Fallback to Railway API if Supabase fails
-      try {
-        const res = await fetch(`${API_BASE}/stats`)
-        if (res.ok) {
-          const data = await res.json()
-          setStats(data)
+      // Try Railway API first (until Supabase key is configured in Vercel env vars)
+      const res = await fetch(`${API_BASE}/stats`)
+      if (res.ok) {
+        const data = await res.json()
+        // Railway has 1000, but we can override with Supabase count if available
+        try {
+          const [totalRes, blockedRes, bypassedRes] = await Promise.all([
+            supabase.from('attacks').select('*', { count: 'exact', head: true }),
+            supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'blocked'),
+            supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'approved')
+          ])
+          if (totalRes.count && totalRes.count > 0) {
+            setStats({
+              total_attempts: totalRes.count,
+              blocked: blockedRes.count || 0,
+              bypassed: bypassedRes.count || 0,
+              bypass_rate: totalRes.count > 0 ? ((bypassedRes.count / totalRes.count) * 100).toFixed(1) : 0,
+              feedback_count: 0
+            })
+            return
+          }
+        } catch {
+          // Supabase failed, use Railway data
         }
+        setStats(data)
+      }
+    } catch (e) {
+      // Both failed, try Supabase directly
+      try {
+        const [totalRes, blockedRes, bypassedRes] = await Promise.all([
+          supabase.from('attacks').select('*', { count: 'exact', head: true }),
+          supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'blocked'),
+          supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'approved')
+        ])
+        setStats({
+          total_attempts: totalRes.count || 0,
+          blocked: blockedRes.count || 0,
+          bypassed: bypassedRes.count || 0,
+          bypass_rate: totalRes.count > 0 ? ((bypassedRes.count / totalRes.count) * 100).toFixed(1) : 0,
+          feedback_count: 0
+        })
       } catch {
         // Both failed
       }
