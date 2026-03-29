@@ -116,11 +116,24 @@ function HeroSection({ stats }) {
 
         <motion.p
           variants={fadeUp}
-          className="text-xl md:text-2xl text-smoke font-light max-w-2xl mx-auto mb-8 leading-relaxed"
+          className="text-xl md:text-2xl text-smoke font-light max-w-2xl mx-auto mb-6 leading-relaxed"
         >
           Stop prompt injection attacks before your AI agent
           <span className="text-white font-medium"> drains your wallet</span>
         </motion.p>
+
+        {/* Waitlist CTA */}
+        <motion.div variants={fadeUp} className="mb-8">
+          <a
+            href="https://tally.so/r/Y5r7b6"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-cyan to-lime text-black font-semibold hover:opacity-90 transition-opacity"
+          >
+            Join the Waitlist
+            <ArrowRight className="w-4 h-4" />
+          </a>
+        </motion.div>
 
         {/* Stats Grid */}
         <motion.div
