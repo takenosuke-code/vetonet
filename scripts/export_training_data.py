@@ -73,14 +73,17 @@ def format_for_training(attacks: list) -> list:
         verdict = attack.get('verdict', '')
         attack_vector = attack.get('attack_vector', '')
         blocked_by = attack.get('blocked_by', '')
+        attack_type = attack.get('type', '')  # redteam, fuzzer, demo
 
         # Skip if missing essential fields
-        if not prompt or not verdict:
+        if not prompt:
             continue
 
-        # Create training example
-        # Label: 1 = attack (blocked), 0 = legitimate (approved)
-        label = 1 if verdict == 'blocked' else 0
+        # CORRECT LABELING:
+        # ALL redteam/fuzzer data is attacks (even bypasses)
+        # Only honest/demo mode from real users would be legitimate
+        # Since all our data is attack testing, label=1 for ALL
+        label = 1  # All attack test data is attacks, including bypasses
 
         # Combine prompt and payload into text for embedding
         payload_str = json.dumps(payload) if isinstance(payload, dict) else str(payload)
@@ -93,7 +96,8 @@ def format_for_training(attacks: list) -> list:
             'label': label,
             'verdict': verdict,
             'attack_vector': attack_vector,
-            'blocked_by': blocked_by
+            'blocked_by': blocked_by,
+            'is_bypass': verdict == 'approved'  # Track bypasses separately
         })
 
     return training_data
@@ -132,6 +136,22 @@ def print_stats(data: list):
         print(f"  {v}: {count}")
 
 
+def load_legitimate_examples() -> list:
+    """Load synthetic legitimate examples."""
+    legit_path = Path(__file__).parent.parent / 'data' / 'legitimate_examples.jsonl'
+
+    if not legit_path.exists():
+        print(f"Warning: {legit_path} not found. Run generate_legitimate_data.py first.")
+        return []
+
+    examples = []
+    with open(legit_path, 'r') as f:
+        for line in f:
+            examples.append(json.loads(line))
+
+    return examples
+
+
 def main():
     print("=" * 50)
     print("VetoNet Training Data Export")
@@ -143,14 +163,25 @@ def main():
 
     # Fetch all attacks
     attacks = fetch_all_attacks(client)
-    print(f"\nTotal records fetched: {len(attacks)}")
+    print(f"\nAttack records fetched: {len(attacks)}")
 
     if not attacks:
         print("No attacks found in database!")
         return
 
-    # Format for training
-    training_data = format_for_training(attacks)
+    # Format for training (ALL labeled as attacks)
+    attack_data = format_for_training(attacks)
+    bypasses = sum(1 for d in attack_data if d.get('is_bypass'))
+    print(f"  - Blocked: {len(attack_data) - bypasses}")
+    print(f"  - Bypasses (still attacks): {bypasses}")
+
+    # Load legitimate examples
+    legit_data = load_legitimate_examples()
+    print(f"\nLegitimate examples loaded: {len(legit_data)}")
+
+    # Combine datasets
+    training_data = attack_data + legit_data
+    print(f"\nTotal training examples: {len(training_data)}")
 
     # Save to file
     output_path = Path(__file__).parent.parent / 'data' / 'training_data.jsonl'
