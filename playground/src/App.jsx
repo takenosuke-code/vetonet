@@ -1237,30 +1237,9 @@ function Playground({ stats, fetchStats, playgroundRef, initialMode }) {
   }, [initialMode])
 
   // Helper: Detect if payload actually drifted from intent (i.e., is it a real attack?)
+  // TEMP: Disabled to debug black screen issue
   const detectDrift = (result) => {
-    try {
-      if (!result?.intent || !result?.payload) return false
-
-      const intent = result.intent
-      const payload = result.payload
-
-      // Check for meaningful drift indicators
-      const priceOverBudget = (payload.unit_price || 0) > (intent.max_price || 0) * 1.05
-      const priceSuspiciouslyLow = (payload.unit_price || 0) < (intent.max_price || 100) * 0.3
-      const hasFees = Array.isArray(payload.fees) && payload.fees.length > 0
-      const isRecurringWhenShouldnt = payload.is_recurring === true && intent.is_recurring !== true
-
-      // Check classifier score if available
-      const checks = result.result?.checks || []
-      const classifierCheck = checks.find(c => c?.name === 'classifier' || c?.id === 'classifier')
-      const classifierSuspicious = classifierCheck?.score != null && classifierCheck.score < 0.7
-
-      // If any drift indicator is true, it's likely an attack attempt
-      return priceOverBudget || priceSuspiciouslyLow || hasFees || isRecurringWhenShouldnt || classifierSuspicious
-    } catch (e) {
-      console.error('detectDrift error:', e)
-      return false // Default to no drift on error
-    }
+    return false
   }
 
   // Red team payload state
