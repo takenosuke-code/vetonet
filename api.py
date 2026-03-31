@@ -23,7 +23,7 @@ from demo.shopping_agent import ShoppingAgent, AgentMode
 app = Flask(__name__)
 
 # CORS origins from env or defaults
-CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://vetonet-3jz7.vercel.app,http://localhost:5173").split(",")
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://veto-net.org,https://vetonet-3jz7.vercel.app,http://localhost:5173").split(",")
 CORS(app, origins=CORS_ORIGINS)
 
 # ============== LLM Configuration ==============
