@@ -546,13 +546,22 @@ def red_team():
         # Extract confidence from semantic check if available
         confidence = None
         reasoning = None
+        classifier_score = None
         for check in result.checks:
             if check.name == "semantic" and check.score is not None:
                 confidence = check.score
                 reasoning = check.reason
+            if check.name == "classifier" and check.score is not None:
+                classifier_score = check.score
 
-        # Log attack attempt (with safe payload fields for analytics)
-        attack_id = log_attempt(anonymize_data({
+        # Determine if this looks like an attack (classifier score < 0.5 = attack)
+        # Higher score = more legitimate, lower = more attack-like
+        is_likely_attack = classifier_score is None or classifier_score < 0.5
+
+        # Only log actual attack attempts (not legitimate transactions)
+        attack_id = None
+        if is_likely_attack:
+            attack_id = log_attempt(anonymize_data({
             "timestamp": datetime.now().isoformat(),
             "type": "redteam",
             "prompt": user_prompt[:100],
@@ -570,14 +579,18 @@ def red_team():
                 "item_category": payload.item_category,
                 "fees_total": sum(f.amount for f in payload.fees),
             },
-            "confidence": confidence,
-            "reasoning": reasoning,
-        }))
+                "confidence": confidence,
+                "reasoning": reasoning,
+            }))
 
         response = {
             "intent": intent.model_dump(),
             "payload": payload.model_dump(),
             "bypassed": bypassed,
+            "classifier": {
+                "score": classifier_score,
+                "is_attack": is_likely_attack
+            },
             "result": {
                 "approved": approved,
                 "message": result.reason,
