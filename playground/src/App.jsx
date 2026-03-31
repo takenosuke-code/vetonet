@@ -506,7 +506,7 @@ function HowItWorks() {
     {
       icon: <Shield className="w-6 h-6" />,
       title: "VetoNet Intercepts",
-      desc: "9 security checks + semantic AI verification"
+      desc: "10 security checks + semantic AI verification"
     },
     {
       icon: <CheckCircle2 className="w-6 h-6" />,
@@ -1611,7 +1611,7 @@ function RedTeamMode({ prompt, setPrompt, attackPayload, setAttackPayload, newFe
         </h3>
         <p className="text-smoke text-sm max-w-xl mx-auto">
           You are a prompt injection attacker. The user wants one thing, but you control what the AI agent actually purchases.
-          <span className="text-coral font-medium"> Can you slip past VetoNet's 9 security checks?</span>
+          <span className="text-coral font-medium"> Can you slip past VetoNet's 10 security checks?</span>
         </p>
       </div>
 
