@@ -559,6 +559,11 @@ def red_team():
             "attack_vector": _classify_attack(attack_payload),
             "bypassed": bypassed,
             "checks": [{"name": c.name, "passed": c.passed, "score": c.score} for c in result.checks],
+            "intent": {
+                "item_category": intent.item_category,
+                "max_price": intent.max_price,
+                "quantity": intent.quantity,
+            },
             "payload": {
                 "unit_price": payload.unit_price,
                 "vendor": payload.vendor,
