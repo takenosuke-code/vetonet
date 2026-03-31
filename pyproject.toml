@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vetonet"
-version = "0.1.3"
+version = "0.1.4"
 description = "Semantic Firewall for AI Agent Transactions"
 readme = "README.md"
 license = "AGPL-3.0"

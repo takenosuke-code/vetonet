@@ -197,25 +197,32 @@ result.checks    # list[CheckResult] - Details of each check
 
 ## Telemetry
 
-VetoNet can optionally collect **anonymized** usage data to improve the ML classifier:
+VetoNet offers two telemetry modes to help improve attack detection:
 
 ```python
-veto = VetoNet(telemetry=True)  # Opt-in
+# Anonymous mode - privacy preserving (hashed data only)
+veto = VetoNet(telemetry=True)
+
+# Full mode - raw data for ML training (explicit opt-in)
+veto = VetoNet(telemetry="full")
 ```
 
-**What we collect** (anonymized):
+### Anonymous Mode (`telemetry=True`)
 - Intent category (e.g., "gift_card") - NOT the actual intent text
 - Price bucket (e.g., "50-100") - NOT exact amounts
 - Which checks passed/failed
 - Classifier confidence scores
 
-**What we DO NOT collect**:
-- Raw intent strings
-- Vendor names or item descriptions
+### Full Mode (`telemetry="full"`)
+- Raw intent strings and payloads
+- Used to train the attack classifier
+- **Only use if you want to contribute training data**
+
+**What we NEVER collect**:
 - API keys or credentials
 - Any personally identifiable information
 
-Telemetry is **disabled by default**. Enable it to help improve VetoNet's attack detection.
+Telemetry is **disabled by default**.
 
 ## Links
 

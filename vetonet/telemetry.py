@@ -1,14 +1,14 @@
 """
-VetoNet Anonymous Telemetry
+VetoNet Telemetry
 
-Collects anonymized attack patterns from SDK users to improve the classifier.
-All data is hashed/anonymized before logging - no PII, no raw intents.
+Two modes:
+1. Anonymous (telemetry=True): Hashed/anonymized data only - privacy preserving
+2. Full (telemetry="full"): Raw prompts + payloads for ML training - opt-in
 
 Privacy:
-- Opt-in by default (telemetry=False unless explicitly enabled)
-- Intent strings are hashed (SHA-256, truncated)
-- Only patterns collected: category, price range, pass/fail, check names
-- No vendor names, no item descriptions, no API keys
+- Disabled by default (telemetry=False)
+- Anonymous mode: Intent hashed, only metadata collected
+- Full mode: Raw data collected to improve attack detection (explicit opt-in)
 """
 
 import hashlib
@@ -165,3 +165,132 @@ def is_telemetry_available() -> bool:
         os.environ.get("SUPABASE_URL") or
         os.environ.get("VETONET_TELEMETRY_URL")
     )
+
+
+# =============================================================================
+# FULL TELEMETRY - For ML Training (Explicit Opt-In)
+# =============================================================================
+
+FULL_TELEMETRY_URL = os.environ.get(
+    "VETONET_FULL_TELEMETRY_URL",
+    "https://web-production-fec907.up.railway.app/api/redteam"
+)
+
+
+def log_full_telemetry(
+    intent_str: str,
+    anchor,
+    payload,
+    result,
+    source: str = "sdk_full"
+) -> bool:
+    """
+    Log FULL verification data for ML training.
+
+    This collects raw prompts and payloads - only use with explicit user consent.
+    Data is used to improve VetoNet's attack detection.
+
+    Args:
+        intent_str: Original user intent string (raw)
+        anchor: IntentAnchor (normalized intent)
+        payload: AgentPayload (transaction details)
+        result: VetoResult (verification result)
+        source: Where the event came from
+
+    Returns:
+        True if logged successfully, False otherwise
+    """
+    try:
+        # Build full training data
+        data = {
+            "type": source,
+            "prompt": intent_str[:500] if intent_str else "",  # Truncate for safety
+            "intent": {
+                "item_category": anchor.item_category,
+                "max_price": anchor.max_price,
+                "core_constraints": anchor.core_constraints,
+            },
+            "payload": {
+                "item_description": payload.item_description[:500],
+                "item_category": payload.item_category,
+                "unit_price": payload.unit_price,
+                "quantity": payload.quantity,
+                "vendor": payload.vendor,
+                "currency": payload.currency,
+                "is_recurring": payload.is_recurring,
+            },
+            "verdict": "approved" if result.approved else "blocked",
+            "blocked_by": next(
+                (c.name for c in result.checks if not c.passed),
+                None
+            ),
+            "checks": [
+                {"name": c.name, "passed": c.passed, "score": c.score}
+                for c in result.checks
+            ],
+        }
+
+        # Try Supabase attacks table first
+        if _log_full_to_supabase(data):
+            return True
+
+        # Try remote API (same as redteam endpoint)
+        if _log_full_to_api(data):
+            return True
+
+        logger.debug("Full telemetry: No backend available")
+        return False
+
+    except Exception as e:
+        logger.debug(f"Full telemetry error: {e}")
+        return False
+
+
+def _log_full_to_supabase(data: dict) -> bool:
+    """Log full data to Supabase attacks table."""
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+
+    if not url or not key:
+        return False
+
+    try:
+        from supabase import create_client
+        client = create_client(url, key)
+
+        client.table("attacks").insert({
+            "type": data["type"],
+            "prompt": data["prompt"],
+            "intent": data["intent"],
+            "payload": data["payload"],
+            "verdict": data["verdict"],
+            "blocked_by": data["blocked_by"],
+            "checks": data["checks"],
+            "attack_vector": "sdk_submission",
+        }).execute()
+
+        return True
+    except Exception as e:
+        logger.debug(f"Supabase full telemetry error: {e}")
+        return False
+
+
+def _log_full_to_api(data: dict) -> bool:
+    """Log full data to VetoNet API."""
+    try:
+        import requests
+
+        response = requests.post(
+            FULL_TELEMETRY_URL,
+            json={
+                "intent": data["prompt"],
+                "payload": data["payload"],
+                "source": data["type"],
+            },
+            timeout=3.0
+        )
+
+        return response.status_code == 200
+    except Exception as e:
+        logger.debug(f"API full telemetry error: {e}")
+        return False

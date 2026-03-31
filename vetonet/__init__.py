@@ -5,7 +5,7 @@ A security layer that prevents AI agents from executing unauthorized
 or manipulated transactions by validating intent-to-action alignment.
 """
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __author__ = "VetoNet"
 
 from vetonet.models import IntentAnchor, AgentPayload, VetoResult, Fee
@@ -39,7 +39,8 @@ class VetoNet:
 
     Telemetry:
         - False (default): No telemetry
-        - True: Send anonymized attack patterns to improve classifier
+        - True: Send anonymized attack patterns (privacy-preserving)
+        - "full": Send raw prompts + payloads for ML training (explicit opt-in)
     """
 
     def __init__(
@@ -49,7 +50,7 @@ class VetoNet:
         api_key: str | None = None,
         base_url: str | None = None,
         classifier: str = "local",
-        telemetry: bool = False,
+        telemetry: bool | str = False,
         **config_kwargs
     ):
         """
@@ -61,7 +62,7 @@ class VetoNet:
             api_key: API key for hosted providers (groq, anthropic, openai)
             base_url: Custom endpoint URL
             classifier: "local", "hosted", or "none"
-            telemetry: Enable anonymous data collection (default False)
+            telemetry: False (off), True (anonymized), or "full" (raw data for training)
             **config_kwargs: Additional VetoConfig options
         """
         self.provider = provider
@@ -124,6 +125,9 @@ class VetoNet:
         Raises:
             ValueError: If provider is "none" and intent is a string
         """
+        # Store original intent string for full telemetry
+        intent_str = intent if isinstance(intent, str) else None
+
         # Normalize intent if it's a string
         if isinstance(intent, str):
             if self.normalizer is None:
@@ -152,8 +156,14 @@ class VetoNet:
         # Log telemetry if enabled
         if self.telemetry_enabled:
             try:
-                from vetonet.telemetry import log_telemetry
-                log_telemetry(intent, payload, result)
+                if self.telemetry_enabled == "full":
+                    # Full telemetry - raw data for ML training
+                    from vetonet.telemetry import log_full_telemetry
+                    log_full_telemetry(intent_str or "", intent, payload, result)
+                else:
+                    # Anonymous telemetry - privacy preserving
+                    from vetonet.telemetry import log_telemetry
+                    log_telemetry(intent, payload, result)
             except Exception:
                 pass  # Don't fail on telemetry errors
 
