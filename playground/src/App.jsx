@@ -83,7 +83,7 @@ function formatRelativeTime(timestamp) {
 }
 
 // =============================================================================
-// FAMOUS ATTACKS - Pre-loaded attack examples from Supabase
+// EXAMPLE SCENARIOS - Pre-loaded intent examples users can test against
 // =============================================================================
 function FamousAttacks({ onSelectAttack, isExpanded, setIsExpanded }) {
   const [attacks, setAttacks] = useState([])
@@ -172,7 +172,7 @@ function FamousAttacks({ onSelectAttack, isExpanded, setIsExpanded }) {
         className="w-full flex items-center justify-center gap-2 text-sm text-smoke hover:text-white transition-colors mb-3"
       >
         <Swords className="w-4 h-4 text-coral" />
-        <span className="font-medium">Try Famous Attacks</span>
+        <span className="font-medium">Example Scenarios</span>
         <span className="text-xs text-ash">({attacks.length} examples)</span>
         {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       </button>
