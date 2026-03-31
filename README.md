@@ -231,4 +231,9 @@ Telemetry is **disabled by default**.
 
 ## License
 
-MIT
+**Dual License:**
+
+- **AGPL-3.0** — Free for open-source projects. If you use VetoNet in a network service, you must open-source your code.
+- **Commercial License** — Use VetoNet in closed-source products without AGPL obligations. Contact: [your-email] for pricing.
+
+See [LICENSE](LICENSE) for AGPL terms.
