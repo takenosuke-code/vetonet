@@ -51,7 +51,7 @@ VetoNet acts as an independent security layer:
 
 1. **Lock Intent** - Extract and lock the user's intent before the agent shops
 2. **Intercept** - Catch the agent's transaction before execution
-3. **Compare** - Run 9 security checks (price, vendor, category, semantic match, etc.)
+3. **Compare** - Run 10 security checks (price, vendor, category, semantic match, etc.)
 4. **Veto** - Block if the transaction drifts from the original intent
 
 ## Provider Options
