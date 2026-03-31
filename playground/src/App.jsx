@@ -292,7 +292,7 @@ function HeroSection({ stats }) {
           variants={fadeUp}
           className="text-xl md:text-2xl text-smoke font-light max-w-2xl mx-auto mb-6 leading-relaxed"
         >
-          Stop prompt injection attacks before your AI agent
+          Prevent intent drift before your AI agent
           <span className="text-white font-medium"> drains your wallet</span>
         </motion.p>
 
