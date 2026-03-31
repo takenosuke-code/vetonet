@@ -1236,6 +1236,27 @@ function Playground({ stats, fetchStats, playgroundRef, initialMode }) {
     }
   }, [initialMode])
 
+  // Helper: Detect if payload actually drifted from intent (i.e., is it a real attack?)
+  const detectDrift = (result) => {
+    if (!result?.intent || !result?.payload) return false
+
+    const intent = result.intent
+    const payload = result.payload
+
+    // Check for meaningful drift indicators
+    const priceOverBudget = payload.unit_price > intent.max_price * 1.05
+    const priceSuspiciouslyLow = payload.unit_price < intent.max_price * 0.3
+    const hasFees = payload.fees && payload.fees.length > 0
+    const isRecurringWhenShouldnt = payload.is_recurring && !intent.is_recurring
+
+    // Check classifier score if available
+    const classifierCheck = result.result?.checks?.find(c => c.name === 'classifier' || c.id === 'classifier')
+    const classifierSuspicious = classifierCheck && classifierCheck.score && classifierCheck.score < 0.7
+
+    // If any drift indicator is true, it's likely an attack attempt
+    return priceOverBudget || priceSuspiciouslyLow || hasFees || isRecurringWhenShouldnt || classifierSuspicious
+  }
+
   // Red team payload state
   const [attackPayload, setAttackPayload] = useState({
     item_description: '',
@@ -1767,7 +1788,8 @@ function RedTeamMode({ prompt, setPrompt, attackPayload, setAttackPayload, newFe
             animate={{ opacity: 1, scale: 1 }}
             className="mt-6 text-center"
           >
-            {result.bypassed || result.result?.approved ? (
+            {(result.bypassed || result.result?.approved) && detectDrift(result) ? (
+              // Real bypass - payload drifted from intent but got approved
               <motion.div
                 initial={{ y: 20 }}
                 animate={{ y: 0 }}
@@ -1787,6 +1809,24 @@ function RedTeamMode({ prompt, setPrompt, attackPayload, setAttackPayload, newFe
                 </p>
                 <p className="text-ash text-xs">
                   Think you found a real vulnerability? Report it to help us improve.
+                </p>
+              </motion.div>
+            ) : (result.bypassed || result.result?.approved) && !detectDrift(result) ? (
+              // Legitimate transaction - no drift, correctly approved
+              <motion.div
+                initial={{ y: 20 }}
+                animate={{ y: 0 }}
+                className="inline-flex flex-col items-center gap-3 px-8 py-6 rounded-2xl bg-gradient-to-br from-cyan/10 to-slate/20 border-2 border-cyan/40"
+              >
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 className="w-8 h-8 text-cyan" />
+                  <span className="text-cyan font-black text-2xl tracking-tight">LEGITIMATE</span>
+                </div>
+                <p className="text-white text-sm font-medium">
+                  This transaction matches the user's intent. Not an attack.
+                </p>
+                <p className="text-ash text-xs">
+                  Try adding hidden fees, changing the price, or using a suspicious vendor.
                 </p>
               </motion.div>
             ) : (
