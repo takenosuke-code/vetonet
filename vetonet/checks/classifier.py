@@ -100,6 +100,10 @@ def _load_model() -> bool:
         # Load trained classifier
         _classifier = joblib.load(model_path)
 
+        # Suppress verbose output from RandomForest
+        if hasattr(_classifier, 'verbose'):
+            _classifier.verbose = 0
+
         _model_loaded = True
         logger.info("Classifier model loaded successfully")
         return True

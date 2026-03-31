@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Telemetry endpoint (VetoNet API on Railway)
 TELEMETRY_URL = os.environ.get(
     "VETONET_TELEMETRY_URL",
-    "https://vetonet-production.up.railway.app/api/telemetry"
+    "https://web-production-fec907.up.railway.app/api/telemetry"
 )
 
 
