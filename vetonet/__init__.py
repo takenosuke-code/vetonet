@@ -5,7 +5,7 @@ A security layer that prevents AI agents from executing unauthorized
 or manipulated transactions by validating intent-to-action alignment.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __author__ = "VetoNet"
 
 from vetonet.models import IntentAnchor, AgentPayload, VetoResult, Fee
