@@ -17,6 +17,7 @@ from vetonet.checks import (
     check_subscription_trap,
     check_currency_manipulation,
     check_scam_patterns,
+    check_crypto_substitution,
     check_semantic_match,
 )
 from vetonet.checks.classifier import check_classifier, is_classifier_available
@@ -83,6 +84,7 @@ class VetoEngine:
             lambda: check_vendor(payload, self.veto_config, anchor),
             lambda: check_price_anomaly(anchor, payload, self.veto_config),
             lambda: check_scam_patterns(payload),
+            lambda: check_crypto_substitution(anchor, payload),
         ]
 
         for check_fn in deterministic_checks:
@@ -124,7 +126,7 @@ class VetoEngine:
         classifier_uncertain = classifier_result is None
         high_value = payload.unit_price >= 100  # $100+ transactions get extra scrutiny
 
-        if anchor.core_constraints or classifier_uncertain or high_value:
+        if self.llm_client and (anchor.core_constraints or classifier_uncertain or high_value):
             semantic_result = check_semantic_match(
                 anchor,
                 payload,

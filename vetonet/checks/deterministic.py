@@ -464,3 +464,116 @@ def check_scam_patterns(
         passed=True,
         reason="No scam patterns detected",
     )
+
+
+# Crypto asset equivalence map - assets that users commonly confuse
+# Key: what user might ask for, Value: list of NOT-equivalent assets
+CRYPTO_SUBSTITUTIONS = {
+    # Bitcoin variants - NOT the same
+    "btc": ["wbtc", "wrapped bitcoin", "bitcoin cash", "bch", "bitcoin sv", "bsv", "rbtc", "renbtc", "tbtc", "hbtc", "sbtc"],
+    "bitcoin": ["wbtc", "wrapped bitcoin", "bitcoin cash", "bch", "bitcoin sv", "bsv", "rbtc", "renbtc", "tbtc", "hbtc", "sbtc", "bitcoin gold", "btg"],
+
+    # Ethereum variants - NOT the same
+    "eth": ["weth", "steth", "reth", "cbeth", "eth2", "ethereum classic", "etc", "lido staked ether", "rocket pool eth"],
+    "ethereum": ["weth", "wrapped ether", "steth", "staked ether", "reth", "ethereum classic", "etc", "lido", "rocket pool"],
+
+    # Stablecoins - NOT equivalent despite being "stable"
+    "usdc": ["usdt", "dai", "busd", "tusd", "usdp", "frax", "ust", "terrausd", "gusd", "lusd"],
+    "usdt": ["usdc", "dai", "busd", "tusd", "usdp", "frax", "ust", "terrausd", "gusd", "lusd"],
+    "dai": ["usdc", "usdt", "busd", "tusd", "usdp", "frax", "ust"],
+
+    # Common high-value crypto
+    "sol": ["wsol", "wrapped sol", "solana"],
+    "solana": ["wsol", "wrapped sol"],
+    "bnb": ["wbnb", "wrapped bnb"],
+    "avax": ["wavax", "wrapped avax"],
+    "matic": ["wmatic", "wrapped matic", "polygon"],
+}
+
+
+def check_crypto_substitution(
+    anchor: IntentAnchor,
+    payload: AgentPayload,
+) -> CheckResult:
+    """
+    Detect crypto asset substitution attacks.
+
+    Catches attacks where:
+    - User asks for BTC, gets WBTC (wrapped Bitcoin - different risk profile)
+    - User asks for ETH, gets stETH (staked ETH - illiquid, smart contract risk)
+    - User asks for USDC, gets UST (now worthless)
+
+    This is critical for crypto transactions where asset equivalence is NOT assumed.
+    """
+    # Only apply to crypto-related categories
+    crypto_categories = {"crypto", "cryptocurrency", "bitcoin", "ethereum", "token", "coin", "defi"}
+
+    category_lower = (anchor.item_category or "").lower()
+    if not any(cat in category_lower for cat in crypto_categories):
+        # Also check if description mentions crypto
+        desc_lower = (payload.item_description or "").lower()
+        if not any(crypto in desc_lower for crypto in ["btc", "bitcoin", "eth", "ethereum", "usdc", "usdt", "crypto", "token", "coin"]):
+            return CheckResult(
+                name="crypto_substitution",
+                passed=True,
+                reason="Not a crypto transaction",
+            )
+
+    # Extract what the user likely wanted from category
+    category_lower = category_lower.replace("cryptocurrency", "").replace("crypto", "").strip()
+    desc_lower = (payload.item_description or "").lower()
+
+    # Check each crypto asset for substitution
+    for intended_asset, bad_substitutes in CRYPTO_SUBSTITUTIONS.items():
+        # Check if user's intent includes this asset
+        if intended_asset in category_lower:
+            # Check if payload description has a substitute
+            for substitute in bad_substitutes:
+                if substitute in desc_lower:
+                    return CheckResult(
+                        name="crypto_substitution",
+                        passed=False,
+                        reason=f"Crypto asset mismatch: requested '{intended_asset.upper()}' but getting '{substitute.upper()}' - these are different assets with different risks",
+                    )
+
+    # Also check item description for common patterns
+    # e.g., description says "WBTC" when it should say "BTC"
+    for intended_asset, bad_substitutes in CRYPTO_SUBSTITUTIONS.items():
+        for substitute in bad_substitutes:
+            # If description contains wrapped/staked version, check if it's what was intended
+            if substitute in desc_lower:
+                # Check if the original asset was mentioned in category or constraints
+                if intended_asset in category_lower:
+                    return CheckResult(
+                        name="crypto_substitution",
+                        passed=False,
+                        reason=f"Crypto asset mismatch: likely wanted '{intended_asset.upper()}' but receiving '{substitute.upper()}'",
+                    )
+
+    # Final check: if description contains a wrapped/derivative asset, flag it
+    # These are inherently suspicious unless explicitly requested
+    WRAPPED_DERIVATIVES = [
+        "wbtc", "wrapped bitcoin", "rbtc", "renbtc", "tbtc", "hbtc",
+        "weth", "wrapped ether", "steth", "staked ether", "reth", "cbeth",
+        "wsol", "wrapped sol",
+        "wbnb", "wrapped bnb",
+        "wavax", "wrapped avax",
+        "wmatic", "wrapped matic",
+    ]
+
+    for derivative in WRAPPED_DERIVATIVES:
+        if derivative in desc_lower:
+            # Get the base asset
+            base = derivative.replace("wrapped ", "").replace("staked ", "").replace("w", "", 1).upper()
+            if base in ["BTC", "ETH", "SOL", "BNB", "AVAX", "MATIC"]:
+                return CheckResult(
+                    name="crypto_substitution",
+                    passed=False,
+                    reason=f"Wrapped/derivative crypto asset detected: '{derivative.upper()}' - this is NOT the same as {base} and has additional risks",
+                )
+
+    return CheckResult(
+        name="crypto_substitution",
+        passed=True,
+        reason="No crypto asset substitution detected",
+    )
