@@ -237,3 +237,4 @@ Telemetry is **disabled by default**.
 - **Commercial License** — Use VetoNet in closed-source products without AGPL obligations. Contact: [your-email] for pricing.
 
 See [LICENSE](LICENSE) for AGPL terms.
+# Deploy trigger Tue Mar 31 18:37:00 PDT 2026
