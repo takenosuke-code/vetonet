@@ -26,8 +26,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
     from sentence_transformers import SentenceTransformer
     from sklearn.ensemble import RandomForestClassifier
-    from sklearn.model_selection import train_test_split, cross_val_score
-    from sklearn.metrics import classification_report, confusion_matrix, f1_score
+    from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
+    from sklearn.metrics import classification_report, confusion_matrix, f1_score, precision_score, recall_score
+    from collections import Counter
 except ImportError as e:
     print("Missing dependencies. Install with:")
     print("  pip install sentence-transformers scikit-learn joblib")
@@ -46,6 +47,33 @@ def load_training_data(path: str) -> tuple[list, list]:
             labels.append(item['label'])
 
     return texts, labels
+
+
+def check_data_quality(texts: list, labels: list) -> dict:
+    """Check training data for quality issues."""
+    issues = {}
+
+    # Check for duplicates
+    text_counts = Counter(texts)
+    duplicates = {t[:80]: c for t, c in text_counts.items() if c > 1}
+    if duplicates:
+        issues['duplicates'] = len(duplicates)
+        print(f"\n[WARNING] Found {len(duplicates)} duplicate texts:")
+        for text, count in list(duplicates.items())[:5]:
+            print(f"  - '{text}...' appears {count}x")
+
+    # Check class imbalance
+    label_counts = Counter(labels)
+    attacks = label_counts.get(1, 0)
+    legitimate = label_counts.get(0, 0)
+    ratio = attacks / legitimate if legitimate > 0 else float('inf')
+
+    if ratio > 5 or ratio < 0.2:
+        issues['imbalance'] = ratio
+        print(f"\n[WARNING] Class imbalance: {attacks} attacks vs {legitimate} legitimate ({ratio:.1f}:1)")
+        print("  Using class_weight='balanced' to compensate")
+
+    return issues
 
 
 def create_embeddings(texts: list, model_name: str = 'all-MiniLM-L6-v2') -> np.ndarray:
@@ -78,8 +106,8 @@ def train_classifier(X_train: np.ndarray, y_train: list) -> RandomForestClassifi
     return clf
 
 
-def evaluate_model(clf, X_test: np.ndarray, y_test: list):
-    """Evaluate the trained model."""
+def evaluate_model(clf, X_test: np.ndarray, y_test: list, X_all: np.ndarray = None, y_all: list = None):
+    """Evaluate the trained model with per-class metrics."""
     print("\n--- Model Evaluation ---")
 
     y_pred = clf.predict(X_test)
@@ -95,9 +123,38 @@ def evaluate_model(clf, X_test: np.ndarray, y_test: list):
     print(f"  TN={cm[0][0]}, FP={cm[0][1]}")
     print(f"  FN={cm[1][0]}, TP={cm[1][1]}")
 
+    # Per-class metrics
+    print("\nPer-Class Metrics:")
+    precision_legit = precision_score(y_test, y_pred, pos_label=0)
+    recall_legit = recall_score(y_test, y_pred, pos_label=0)
+    precision_attack = precision_score(y_test, y_pred, pos_label=1)
+    recall_attack = recall_score(y_test, y_pred, pos_label=1)
+    print(f"  Legitimate: Precision={precision_legit:.3f}, Recall={recall_legit:.3f}")
+    print(f"  Attack:     Precision={precision_attack:.3f}, Recall={recall_attack:.3f}")
+
     # F1 Score
     f1 = f1_score(y_test, y_pred)
-    print(f"\nF1 Score: {f1:.4f}")
+    print(f"\nF1 Score (Attack class): {f1:.4f}")
+
+    # Check for suspicious perfect score
+    if f1 >= 0.99:
+        print("\n[RED FLAG] F1 score is suspiciously perfect (>=0.99)")
+        print("  Possible causes:")
+        print("  - Data leakage from duplicates in train/test")
+        print("  - Not enough variety in training data")
+        print("  - Test set too similar to training set")
+
+    # Cross-validation if full dataset provided
+    if X_all is not None and y_all is not None:
+        print("\n--- 5-Fold Cross-Validation ---")
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        cv_scores = cross_val_score(clf, X_all, y_all, cv=cv, scoring='f1')
+        print(f"  Fold scores: {cv_scores}")
+        print(f"  Mean F1: {np.mean(cv_scores):.4f} (+/- {np.std(cv_scores)*2:.4f})")
+
+        # Check for high variance (sign of overfitting)
+        if np.std(cv_scores) > 0.1:
+            print("\n[WARNING] High variance in CV scores - possible overfitting")
 
     # Confidence distribution
     confidences = np.max(y_proba, axis=1)
@@ -139,6 +196,9 @@ def main():
     print(f"  Attacks: {sum(labels)}")
     print(f"  Legitimate: {len(labels) - sum(labels)}")
 
+    # Check data quality
+    issues = check_data_quality(texts, labels)
+
     # Create embeddings
     print()
     embeddings = create_embeddings(texts)
@@ -159,8 +219,8 @@ def main():
     print()
     clf = train_classifier(X_train, y_train)
 
-    # Evaluate
-    f1 = evaluate_model(clf, X_test, y_test)
+    # Evaluate with cross-validation
+    f1 = evaluate_model(clf, X_test, y_test, embeddings, labels)
 
     # Check if model is good enough
     if f1 < 0.7:

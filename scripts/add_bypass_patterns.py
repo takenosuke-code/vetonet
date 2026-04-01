@@ -105,10 +105,9 @@ def main():
 
         print(f"Existing training examples: {len(existing)}")
 
-        # Add bypass patterns (multiple times for emphasis)
-        # Repeat 5x to ensure classifier learns these patterns
-        for _ in range(5):
-            existing.extend(formatted)
+        # Add bypass patterns ONCE - no repetition to avoid data leakage
+        # The classifier uses class_weight='balanced' to handle importance
+        existing.extend(formatted)
 
         # Save combined
         with open(training_path, 'w') as f:
@@ -116,7 +115,7 @@ def main():
                 f.write(json.dumps(item) + '\n')
 
         print(f"Total training examples: {len(existing)}")
-        print(f"Added {len(formatted) * 5} bypass pattern examples (5x repeated)")
+        print(f"Added {len(formatted)} bypass pattern examples (no repetition)")
     else:
         print(f"Warning: {training_path} not found")
         print("Run export_training_data.py first, then run this script again")

@@ -66,6 +66,8 @@ def fetch_all_attacks(client) -> list:
 def format_for_training(attacks: list) -> list:
     """Format attacks for classifier training."""
     training_data = []
+    skipped_null_payload = 0
+    skipped_no_prompt = 0
 
     for attack in attacks:
         prompt = attack.get('prompt', '')
@@ -77,6 +79,14 @@ def format_for_training(attacks: list) -> list:
 
         # Skip if missing essential fields
         if not prompt:
+            skipped_no_prompt += 1
+            continue
+
+        # CRITICAL: Skip null/empty payloads - these create garbage training patterns
+        if not payload or payload == 'null' or payload == {} or (
+            isinstance(payload, dict) and not payload.get('item_description')
+        ):
+            skipped_null_payload += 1
             continue
 
         # CORRECT LABELING:
@@ -113,6 +123,9 @@ def format_for_training(attacks: list) -> list:
             'blocked_by': blocked_by,
             'is_bypass': verdict == 'approved'  # Track bypasses separately
         })
+
+    if skipped_null_payload or skipped_no_prompt:
+        print(f"  Skipped: {skipped_null_payload} null payloads, {skipped_no_prompt} missing prompts")
 
     return training_data
 

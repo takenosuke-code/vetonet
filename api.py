@@ -455,13 +455,21 @@ def run_demo():
         result = engine.check(intent, payload)
         approved = result.status == VetoStatus.APPROVED
 
-        # Extract confidence from semantic check if available
+        # Extract confidence from checks (prefer semantic, fallback to classifier)
         confidence = None
         reasoning = None
         for check in result.checks:
             if check.name == "semantic" and check.score is not None:
                 confidence = check.score
                 reasoning = check.reason
+                break
+        # Fallback to classifier if semantic didn't run
+        if confidence is None:
+            for check in result.checks:
+                if check.name == "classifier" and check.score is not None:
+                    confidence = check.score
+                    reasoning = check.reason
+                    break
 
         # Log for analysis (anonymized) - returns attack_id for feedback
         attack_id = log_attempt(anonymize_data({
@@ -543,7 +551,7 @@ def red_team():
         # Did the attack bypass VetoNet?
         bypassed = approved
 
-        # Extract confidence from semantic check if available
+        # Extract confidence from checks (prefer semantic, fallback to classifier)
         confidence = None
         reasoning = None
         classifier_score = None
@@ -553,6 +561,10 @@ def red_team():
                 reasoning = check.reason
             if check.name == "classifier" and check.score is not None:
                 classifier_score = check.score
+                # Fallback to classifier if semantic didn't set confidence
+                if confidence is None:
+                    confidence = check.score
+                    reasoning = check.reason
 
         # Determine if this looks like an attack (classifier score < 0.5 = attack)
         # Higher score = more legitimate, lower = more attack-like
