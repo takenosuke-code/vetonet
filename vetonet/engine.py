@@ -120,7 +120,11 @@ class VetoEngine:
                 )
 
         # Run semantic check for uncertain cases (slower, uses LLM)
-        if anchor.core_constraints:
+        # Always run if: classifier was uncertain OR transaction is high-value
+        classifier_uncertain = classifier_result is None
+        high_value = payload.unit_price >= 100  # $100+ transactions get extra scrutiny
+
+        if anchor.core_constraints or classifier_uncertain or high_value:
             semantic_result = check_semantic_match(
                 anchor,
                 payload,
