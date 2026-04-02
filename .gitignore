@@ -19,9 +19,9 @@ private/
 data/
 *.jsonl
 
-# Trained ML models
-# Small models (<1MB) committed for easy deploys
-# Large models should use cloud storage (S3/Supabase)
+# Trained ML models (PROPRIETARY - use Supabase Storage for deploys)
+models/
+*.pkl
 *.gguf
 
 # All result files (attack data)

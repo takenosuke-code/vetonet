@@ -34,7 +34,7 @@ Contact for pricing based on your use case:
 
 ## Contact
 
-Email: [INSERT EMAIL]
+Email: takenosuke.edu@gmail.com
 Website: https://veto-net.org
 
 ---
