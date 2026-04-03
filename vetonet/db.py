@@ -47,9 +47,17 @@ def log_attack(
     confidence: float = None,
     reasoning: str = None,
     attack_vector: str = None,
+    source: str = None,
 ) -> Optional[str]:
     """
     Log an attack attempt to Supabase.
+
+    Args:
+        type: Type of attempt (demo, redteam, api_check, fuzzer)
+        source: Where the attempt came from (playground, api, fuzzer, sdk)
+        intent: Full IntentAnchor dict (use intent.model_dump())
+        payload: Full AgentPayload dict (use payload.model_dump())
+        blocked_by: Which check blocked it (if blocked)
 
     Returns the attack ID if successful, None otherwise.
     """
@@ -69,6 +77,7 @@ def log_attack(
             "confidence": confidence,
             "reasoning": reasoning[:500] if reasoning else None,  # Truncate reasoning
             "attack_vector": attack_vector,
+            "source": source,
         }
 
         result = client.table("attacks").insert(data).execute()
@@ -157,35 +166,43 @@ def get_stats() -> dict:
 
 
 def get_vector_stats() -> list:
-    """Get attack vector statistics for leaderboard."""
+    """Get attack vector statistics for leaderboard using pagination."""
     client = get_client()
     if not client:
         return []
 
     try:
-        # Get all attacks with vectors
-        result = client.table("attacks").select(
-            "attack_vector, verdict"
-        ).not_.is_("attack_vector", "null").execute()
-
-        if not result.data:
-            return []
-
-        # Aggregate by vector
+        # Paginate to get ALL attacks (bypass 1000 row limit)
         stats = {}
-        for attack in result.data:
-            vector = attack.get("attack_vector")
-            if not vector:
-                continue
+        page_size = 1000
+        offset = 0
 
-            if vector not in stats:
-                stats[vector] = {"total": 0, "blocked": 0, "bypassed": 0}
+        while True:
+            result = client.table("attacks").select(
+                "attack_vector, verdict"
+            ).not_.is_("attack_vector", "null").range(offset, offset + page_size - 1).execute()
 
-            stats[vector]["total"] += 1
-            if attack.get("verdict") == "approved":
-                stats[vector]["bypassed"] += 1
-            else:
-                stats[vector]["blocked"] += 1
+            if not result.data:
+                break
+
+            for attack in result.data:
+                vector = attack.get("attack_vector")
+                if not vector:
+                    continue
+
+                if vector not in stats:
+                    stats[vector] = {"total": 0, "blocked": 0, "bypassed": 0}
+
+                stats[vector]["total"] += 1
+                if attack.get("verdict") == "approved":
+                    stats[vector]["bypassed"] += 1
+                else:
+                    stats[vector]["blocked"] += 1
+
+            # If we got fewer than page_size, we've reached the end
+            if len(result.data) < page_size:
+                break
+            offset += page_size
 
         # Convert to list and sort by total
         vectors = [
@@ -236,43 +253,130 @@ def get_attacks_for_export(limit: int = 1000) -> list:
         return []
 
 
-def import_training_data(source: str, prompt: str, is_attack: bool, attack_type: str = None) -> bool:
-    """Import a training data record (from Kaggle, etc.)."""
+# ============== ML Training Data ==============
+
+def add_training_data(
+    prompt: str,
+    intent: dict,
+    payload: dict,
+    is_attack: bool,
+    source: str = "synthetic",
+    attack_vector: str = None,
+    blocked_by: str = None,
+    confidence: float = None,
+) -> bool:
+    """
+    Add a training data record to ml_training_data.
+
+    Use for synthetic data generation or manual additions.
+    Real attack data is auto-copied via database trigger.
+    """
     client = get_client()
     if not client:
         return False
 
     try:
-        client.table("training_data").insert({
+        import hashlib
+        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
+
+        client.table("ml_training_data").insert({
             "source": source,
             "prompt": prompt,
+            "intent": intent,
+            "payload": payload,
             "is_attack": is_attack,
-            "attack_type": attack_type,
+            "attack_vector": attack_vector,
+            "blocked_by": blocked_by,
+            "confidence": confidence,
+            "human_verified": source == "synthetic",  # Synthetic data is "verified" by design
+            "prompt_hash": prompt_hash,
         }).execute()
         return True
 
     except Exception as e:
-        print(f"Supabase import_training_data error: {e}")
+        print(f"Supabase add_training_data error: {e}")
         return False
 
 
-def get_training_data(source: str = None, limit: int = 10000) -> list:
-    """Get training data for model training."""
+def get_ml_training_data(
+    is_attack: bool = None,
+    verified_only: bool = False,
+    attack_vector: str = None,
+    limit: int = 10000,
+) -> list:
+    """
+    Get ML training data for model training.
+
+    Args:
+        is_attack: Filter by attack (True) or legitimate (False)
+        verified_only: Only return human-verified records
+        attack_vector: Filter by specific attack vector
+        limit: Max records to return
+    """
     client = get_client()
     if not client:
         return []
 
     try:
-        query = client.table("training_data").select("*")
-        if source:
-            query = query.eq("source", source)
-        result = query.limit(limit).execute()
+        query = client.table("ml_training_data").select(
+            "prompt, intent, payload, is_attack, attack_vector, blocked_by, confidence"
+        )
 
+        if is_attack is not None:
+            query = query.eq("is_attack", is_attack)
+        if verified_only:
+            query = query.eq("human_verified", True)
+        if attack_vector:
+            query = query.eq("attack_vector", attack_vector)
+
+        result = query.limit(limit).execute()
         return result.data or []
 
     except Exception as e:
-        print(f"Supabase get_training_data error: {e}")
+        print(f"Supabase get_ml_training_data error: {e}")
         return []
+
+
+def get_training_stats() -> dict:
+    """Get ML training data statistics."""
+    client = get_client()
+    if not client:
+        return {}
+
+    try:
+        total = client.table("ml_training_data").select("id", count="exact").execute()
+        attacks = client.table("ml_training_data").select("id", count="exact").eq("is_attack", True).execute()
+        legitimate = client.table("ml_training_data").select("id", count="exact").eq("is_attack", False).execute()
+        verified = client.table("ml_training_data").select("id", count="exact").eq("human_verified", True).execute()
+
+        return {
+            "total": total.count or 0,
+            "attacks": attacks.count or 0,
+            "legitimate": legitimate.count or 0,
+            "verified": verified.count or 0,
+        }
+
+    except Exception as e:
+        print(f"Supabase get_training_stats error: {e}")
+        return {}
+
+
+def mark_as_verified(training_id: str, feedback: str = "correct") -> bool:
+    """Mark a training record as human-verified."""
+    client = get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("ml_training_data").update({
+            "human_verified": True,
+            "feedback": feedback,
+        }).eq("id", training_id).execute()
+        return True
+
+    except Exception as e:
+        print(f"Supabase mark_as_verified error: {e}")
+        return False
 
 
 # ============== API Key Management ==============

@@ -4,19 +4,12 @@ import {
   Shield, ShieldAlert, ShieldCheck, AlertTriangle, CheckCircle2, XCircle,
   Bot, User, Lock, Play, RotateCcw, Swords, Target, Trophy, Skull, Unlock,
   ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, AlertCircle, Zap, Eye,
-  TrendingUp, BarChart3, Activity, Send, Sparkles, ArrowRight, ExternalLink,
-  DollarSign, CreditCard, Ban, CircleDollarSign
+  TrendingUp, BarChart3, Activity, Sparkles, ArrowRight, ExternalLink,
+  CreditCard, Ban
 } from 'lucide-react'
-import { createClient } from '@supabase/supabase-js'
+import LandingPage from './LandingPage'
+import { API_BASE } from './config'
 import './index.css'
-
-// API Configuration
-const API_BASE = import.meta.env.VITE_API_URL || 'https://web-production-fec907.up.railway.app/api'
-
-// Supabase Configuration (anon key is safe for client-side)
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://tihvfpvgpdmoqjhdsyge.supabase.co'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_l1AhHLPUeoeNgckmjkfRjA_URBjkeXH'
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 const SECURITY_CHECKS = [
   { id: 'price', name: 'Price Limit', desc: 'Total within bounds' },
@@ -95,16 +88,10 @@ function FamousAttacks({ onSelectAttack, isExpanded, setIsExpanded }) {
 
   const fetchFamousAttacks = async () => {
     try {
-      // Fetch interesting attacks: high-value attempts, various vectors, some bypasses
-      const { data, error } = await supabase
-        .from('attacks')
-        .select('id, prompt, attack_vector, payload, verdict, blocked_by')
-        .not('attack_vector', 'is', null)
-        .not('prompt', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(100)
-
-      if (error) throw error
+      // Fetch from Railway API (Supabase RLS blocks anon access)
+      const res = await fetch(`${API_BASE}/feed`)
+      if (!res.ok) throw new Error('Failed to fetch feed')
+      const { attacks: data } = await res.json()
 
       // Filter and dedupe to get interesting diverse examples
       const seen = new Set()
@@ -115,15 +102,12 @@ function FamousAttacks({ onSelectAttack, isExpanded, setIsExpanded }) {
         // Bypasses are most interesting
         if (a.verdict === 'approved' && b.verdict !== 'approved') return -1
         if (b.verdict === 'approved' && a.verdict !== 'approved') return 1
-        // Then sort by payload value if available
-        const aPrice = a.payload?.unit_price || 0
-        const bPrice = b.payload?.unit_price || 0
-        return bPrice - aPrice
+        return 0
       })
 
       for (const attack of sorted) {
         // Skip if we've seen this vector already (for variety)
-        const key = `${attack.attack_vector}-${attack.prompt?.substring(0, 30)}`
+        const key = `${attack.attack_vector || 'unknown'}-${attack.prompt?.substring(0, 30)}`
         if (seen.has(key)) continue
         seen.add(key)
 
@@ -200,9 +184,9 @@ function FamousAttacks({ onSelectAttack, isExpanded, setIsExpanded }) {
                   >
                     <div className="flex items-start gap-3">
                       <div className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        attack.bypassed ? 'bg-coral/20 text-coral' : 'bg-cyan/20 text-cyan'
+                        attack.bypassed ? 'bg-coral/20 text-coral' : 'bg-lime/20 text-lime'
                       }`}>
-                        {attack.bypassed ? <Unlock className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
+                        {attack.bypassed ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm text-white truncate font-mono group-hover:text-coral transition-colors">
@@ -859,55 +843,15 @@ function AttackLeaderboard() {
 
   const fetchVectors = async () => {
     try {
-      // Fetch all records from Supabase with pagination (1000 per page)
-      const allData = []
-      let page = 0
-      const pageSize = 1000
-
-      while (true) {
-        const { data, error } = await supabase
-          .from('attacks')
-          .select('attack_vector, verdict')
-          .not('attack_vector', 'is', null)
-          .range(page * pageSize, (page + 1) * pageSize - 1)
-
-        if (error) throw error
-        if (!data || data.length === 0) break
-
-        allData.push(...data)
-        if (data.length < pageSize) break
-        page++
+      // Fetch from Railway API (Supabase RLS blocks anon access)
+      const res = await fetch(`${API_BASE}/vectors`)
+      if (res.ok) {
+        const data = await res.json()
+        setVectors(data.vectors || [])
       }
-
-      // Aggregate by vector
-      const stats = {}
-      for (const attack of allData) {
-        const vector = attack.attack_vector
-        if (!vector) continue
-        if (!stats[vector]) stats[vector] = { total: 0, blocked: 0, bypassed: 0 }
-        stats[vector].total++
-        if (attack.verdict === 'approved') stats[vector].bypassed++
-        else stats[vector].blocked++
-      }
-
-      // Convert to sorted array
-      const vectorList = Object.entries(stats)
-        .map(([vector, s]) => ({ vector, ...s }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 10)
-
-      setVectors(vectorList)
     } catch (e) {
-      // Fallback to API
-      try {
-        const res = await fetch(`${API_BASE}/vectors`)
-        if (res.ok) {
-          const data = await res.json()
-          setVectors(data.vectors || [])
-        }
-      } catch {
-        setVectors([])
-      }
+      console.error('Failed to fetch vectors:', e)
+      setVectors([])
     }
     setLoading(false)
   }
@@ -1012,46 +956,28 @@ function LiveFeed() {
 
   const fetchAttacks = async () => {
     try {
-      // Fetch directly from Supabase
-      const { data, error } = await supabase
-        .from('attacks')
-        .select('id, created_at, prompt, verdict, blocked_by, attack_vector, payload')
-        .order('created_at', { ascending: false })
-        .limit(20)
-
-      if (error) throw error
-
-      const mapped = (data || []).map(a => ({
-        id: a.id,
-        timestamp: a.created_at,
-        prompt: a.prompt,
-        blocked: a.verdict === 'blocked',
-        bypassed: a.verdict === 'approved',
-        reason: a.blocked_by || (a.verdict === 'approved' ? 'Bypassed' : 'Security check'),
-        attack_vector: a.attack_vector,
-        vendor: a.payload?.vendor
-      }))
-      setAttacks(mapped)
-      setIsLive(true)
-    } catch (e) {
-      // Fallback to Railway API
-      try {
-        const res = await fetch(`${API_BASE}/feed`)
-        if (res.ok) {
-          const data = await res.json()
-          const mapped = (data.attacks || [])
-            .slice(0, 8)
-            .map(a => ({
-              ...a,
-              blocked: !a.bypassed,
-              reason: a.blocked_by || (a.bypassed ? 'Bypassed' : 'Security check')
-            }))
-          setAttacks(mapped)
-          setIsLive(true)
-        }
-      } catch {
+      // Fetch from Railway API (Supabase RLS blocks anon access)
+      const res = await fetch(`${API_BASE}/feed`)
+      if (res.ok) {
+        const data = await res.json()
+        const mapped = (data.attacks || []).map(a => ({
+          id: a.id,
+          timestamp: a.timestamp || a.created_at,
+          prompt: a.prompt,
+          blocked: !a.bypassed,
+          bypassed: a.bypassed,
+          reason: a.blocked_by || (a.bypassed ? 'bypassed' : 'blocked'),
+          attack_vector: a.attack_vector,
+          vendor: a.vendor || a.payload?.vendor
+        }))
+        setAttacks(mapped)
+        setIsLive(true)
+      } else {
         setIsLive(false)
       }
+    } catch (e) {
+      console.error('Failed to fetch attacks:', e)
+      setIsLive(false)
     }
   }
 
@@ -1111,16 +1037,16 @@ function LiveFeed() {
                         className="px-6 py-3 flex items-center gap-4 hover:bg-white/[0.02]"
                       >
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                          attack.blocked ? 'bg-cyan/10 text-cyan' : 'bg-coral/10 text-coral'
+                          attack.blocked ? 'bg-lime/10 text-lime' : 'bg-coral/10 text-coral'
                         }`}>
-                          {attack.blocked ? <Shield className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                          {attack.blocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm text-white truncate font-mono">
                             {attack.prompt || 'Unknown'}
                           </div>
                           <div className="text-xs text-ash flex items-center gap-2">
-                            <span className={attack.blocked ? 'text-cyan' : 'text-coral'}>
+                            <span className={attack.blocked ? 'text-lime' : 'text-coral'}>
                               {attack.reason}
                             </span>
                             {attack.vendor && <span>• {attack.vendor}</span>}
@@ -2054,7 +1980,7 @@ function Footer() {
 }
 
 // =============================================================================
-// MAIN APP
+// MAIN APP - Landing page only, challenge page is separate route
 // =============================================================================
 function App() {
   const [stats, setStats] = useState({
@@ -2063,84 +1989,45 @@ function App() {
     bypassed: 0,
     bypass_rate: 0
   })
-  const [challengeMode, setChallengeMode] = useState(null)
-  const playgroundRef = useRef(null)
-
-  const handleAcceptChallenge = () => {
-    setChallengeMode('redteam')
-    // Scroll to playground
-    setTimeout(() => {
-      playgroundRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 100)
-  }
 
   useEffect(() => {
     fetchStats()
-    const interval = setInterval(fetchStats, 5000)
+    const interval = setInterval(fetchStats, 30000) // Less frequent on landing
     return () => clearInterval(interval)
   }, [])
 
   const fetchStats = async () => {
     try {
-      // Try Railway API first (until Supabase key is configured in Vercel env vars)
       const res = await fetch(`${API_BASE}/stats`)
       if (res.ok) {
         const data = await res.json()
-        // Railway has 1000, but we can override with Supabase count if available
-        try {
-          const [totalRes, blockedRes, bypassedRes] = await Promise.all([
-            supabase.from('attacks').select('*', { count: 'exact', head: true }),
-            supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'blocked'),
-            supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'approved')
-          ])
-          if (totalRes.count && totalRes.count > 0) {
-            setStats({
-              total_attempts: totalRes.count,
-              blocked: blockedRes.count || 0,
-              bypassed: bypassedRes.count || 0,
-              bypass_rate: totalRes.count > 0 ? ((bypassedRes.count / totalRes.count) * 100).toFixed(1) : 0,
-              feedback_count: 0
-            })
-            return
-          }
-        } catch {
-          // Supabase failed, use Railway data
-        }
-        setStats(data)
+        setStats({
+          total_attempts: data.total_attempts || 0,
+          blocked: data.blocked || 0,
+          bypassed: data.bypassed || 0,
+          bypass_rate: data.bypass_rate || 0,
+          feedback_count: data.feedback_count || 0
+        })
       }
     } catch (e) {
-      // Both failed, try Supabase directly
-      try {
-        const [totalRes, blockedRes, bypassedRes] = await Promise.all([
-          supabase.from('attacks').select('*', { count: 'exact', head: true }),
-          supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'blocked'),
-          supabase.from('attacks').select('*', { count: 'exact', head: true }).eq('verdict', 'approved')
-        ])
-        setStats({
-          total_attempts: totalRes.count || 0,
-          blocked: blockedRes.count || 0,
-          bypassed: bypassedRes.count || 0,
-          bypass_rate: totalRes.count > 0 ? ((bypassedRes.count / totalRes.count) * 100).toFixed(1) : 0,
-          feedback_count: 0
-        })
-      } catch {
-        // Both failed
-      }
+      console.error('Failed to fetch stats:', e)
     }
   }
 
-  return (
-    <div className="min-h-screen bg-void grid-bg relative noise">
-      <HeroSection stats={stats} />
-      <HowItWorks />
-      <BeforeAfterComparison />
-      <ChallengeBanner stats={stats} onAcceptChallenge={handleAcceptChallenge} />
-      <Playground stats={stats} fetchStats={fetchStats} playgroundRef={playgroundRef} initialMode={challengeMode} />
-      <AttackLeaderboard />
-      <LiveFeed />
-      <Footer />
-    </div>
-  )
+  return <LandingPage stats={stats} />
+}
+
+// Export components for ChallengePage
+export {
+  ChallengeBanner,
+  Playground,
+  AttackLeaderboard,
+  LiveFeed,
+  FamousAttacks,
+  HowItWorks,
+  BeforeAfterComparison,
+  Footer,
+  API_BASE
 }
 
 function sleep(ms) {

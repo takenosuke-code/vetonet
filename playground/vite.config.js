@@ -4,10 +4,11 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  envDir: '..',  // Read .env from root directory
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'https://web-production-fec907.up.railway.app',
         changeOrigin: true,
       }
     }

@@ -18,6 +18,7 @@ from vetonet.llm.client import create_client
 from vetonet.config import LLMConfig
 from vetonet import db as supabase_db
 from vetonet.checks.classifier import is_classifier_available, get_classifier_stats
+from vetonet.auth import require_api_key as require_user_api_key, create_api_key, list_user_keys, revoke_api_key
 from demo.shopping_agent import ShoppingAgent, AgentMode
 
 app = Flask(__name__)
@@ -63,6 +64,81 @@ MAX_PRICE = 1_000_000  # $1M max
 MAX_QUANTITY = 10_000
 MAX_PROMPT_LENGTH = 1000
 MAX_DESCRIPTION_LENGTH = 500
+
+# ============== SECURITY: Rate Limiting for Public Endpoints ==============
+import time
+from collections import defaultdict
+
+# Simple in-memory rate limiter for public endpoints
+# For production with multiple instances, use Redis
+_public_rate_limits = defaultdict(list)
+PUBLIC_RATE_LIMIT = 30  # requests per minute per IP
+PUBLIC_RATE_WINDOW = 60  # seconds
+
+def get_client_ip():
+    """Get client IP, handling proxies."""
+    # Check X-Forwarded-For for reverse proxies (Railway, Vercel, etc.)
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr or 'unknown'
+
+def check_public_rate_limit():
+    """Check if client is within rate limit. Returns (allowed, remaining, reset_time)."""
+    ip = get_client_ip()
+    now = time.time()
+    window_start = now - PUBLIC_RATE_WINDOW
+
+    # Clean old entries
+    _public_rate_limits[ip] = [t for t in _public_rate_limits[ip] if t > window_start]
+
+    current_count = len(_public_rate_limits[ip])
+    remaining = max(0, PUBLIC_RATE_LIMIT - current_count)
+    reset_time = int(now + PUBLIC_RATE_WINDOW)
+
+    if current_count >= PUBLIC_RATE_LIMIT:
+        return False, 0, reset_time
+
+    _public_rate_limits[ip].append(now)
+    return True, remaining - 1, reset_time
+
+def rate_limit_response():
+    """Return a rate limit exceeded response."""
+    _, _, reset_time = check_public_rate_limit()
+    response = jsonify({
+        "error": "Rate limit exceeded",
+        "message": f"Max {PUBLIC_RATE_LIMIT} requests per minute. Try again later.",
+        "retry_after": PUBLIC_RATE_WINDOW
+    })
+    response.headers["Retry-After"] = str(PUBLIC_RATE_WINDOW)
+    response.headers["X-RateLimit-Limit"] = str(PUBLIC_RATE_LIMIT)
+    response.headers["X-RateLimit-Remaining"] = "0"
+    response.headers["X-RateLimit-Reset"] = str(reset_time)
+    return response, 429
+
+def require_rate_limit(f):
+    """Decorator to apply rate limiting to public endpoints."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        allowed, remaining, reset_time = check_public_rate_limit()
+        if not allowed:
+            return rate_limit_response()
+
+        response = f(*args, **kwargs)
+
+        # Add rate limit headers to successful responses
+        if isinstance(response, tuple):
+            resp_obj = response[0]
+        else:
+            resp_obj = response
+
+        if hasattr(resp_obj, 'headers'):
+            resp_obj.headers["X-RateLimit-Limit"] = str(PUBLIC_RATE_LIMIT)
+            resp_obj.headers["X-RateLimit-Remaining"] = str(remaining)
+            resp_obj.headers["X-RateLimit-Reset"] = str(reset_time)
+
+        return response
+    return decorated
 
 
 def validate_payload(data: dict) -> tuple[bool, str]:
@@ -145,6 +221,7 @@ def anonymize_data(data: dict) -> dict:
 # Fallback: Railway Postgres or file
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")  # For JWT verification
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_db():
@@ -231,6 +308,7 @@ def log_attempt(data) -> str | None:
             confidence=data.get("confidence"),
             reasoning=data.get("reasoning"),
             attack_vector=data.get("attack_vector"),
+            source=data.get("source"),
         )
         if attack_id:
             return attack_id
@@ -289,7 +367,305 @@ def health():
     })
 
 
+# ============== API Key Management ==============
+
+def get_user_from_jwt():
+    """
+    Extract user ID from Supabase JWT token.
+
+    Expects Authorization: Bearer <supabase_jwt>
+    Returns user_id or None.
+    """
+    import jwt
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header[7:]
+
+    # For API keys (veto_sk_), this is not a JWT
+    if token.startswith("veto_sk_"):
+        return None
+
+    try:
+        # SECURITY: Verify JWT signature to prevent token forgery
+        if SUPABASE_JWT_SECRET:
+            # Production: Verify signature with Supabase JWT secret
+            payload = jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                audience="authenticated"
+            )
+        else:
+            # SECURITY: Fail closed - reject JWT auth without secret
+            app.logger.error("SUPABASE_JWT_SECRET not set - rejecting JWT authentication")
+            return None
+        return payload.get("sub")  # Supabase puts user_id in 'sub'
+    except jwt.ExpiredSignatureError:
+        app.logger.warning("JWT token expired")
+        return None
+    except jwt.InvalidTokenError as e:
+        app.logger.warning(f"Invalid JWT token: {e}")
+        return None
+    except Exception:
+        return None
+
+
+@app.route("/api/keys", methods=["POST"])
+def create_key():
+    """
+    Create a new API key for the authenticated user.
+
+    Requires Supabase JWT in Authorization header.
+
+    Body (optional): {
+        "name": "My App Key",
+        "environment": "live",  # "live" or "test"
+        "rate_limit": 10000,
+        "expires_days": 365
+    }
+
+    Returns: {
+        "key": "veto_sk_live_abc123...",  # ONLY shown once!
+        "id": "uuid",
+        "name": "My App Key",
+        "key_prefix": "veto_sk_live_",
+        "environment": "live",
+        "rate_limit": 10000,
+        "created_at": "2024-01-01T00:00:00Z",
+        "warning": "Save this key now. It cannot be shown again."
+    }
+    """
+    user_id = get_user_from_jwt()
+    if not user_id:
+        return jsonify({"error": "Authentication required. Use Supabase JWT."}), 401
+
+    data = request.json or {}
+    name = data.get("name")
+    environment = data.get("environment", "live")
+    rate_limit = data.get("rate_limit", 10000)
+    expires_days = data.get("expires_days")
+
+    # Validate environment
+    if environment not in ("live", "test"):
+        return jsonify({"error": "environment must be 'live' or 'test'"}), 400
+
+    # Validate rate_limit
+    if not isinstance(rate_limit, int) or rate_limit < 1 or rate_limit > 100000:
+        return jsonify({"error": "rate_limit must be 1-100000"}), 400
+
+    try:
+        full_key, key_record = create_api_key(
+            user_id=user_id,
+            name=name,
+            rate_limit=rate_limit,
+            expires_days=expires_days,
+            environment=environment,
+        )
+
+        if not key_record:
+            return jsonify({"error": "Failed to create key"}), 500
+
+        return jsonify({
+            "key": full_key,  # Only shown ONCE
+            "warning": "Save this key now. It cannot be shown again.",
+            **key_record,
+        }), 201
+
+    except Exception as e:
+        app.logger.error(f"Create key error: {e}")
+        return jsonify({"error": "Failed to create key"}), 500
+
+
+@app.route("/api/keys", methods=["GET"])
+def list_keys():
+    """
+    List all API keys for the authenticated user.
+
+    Keys are returned with masked display (prefix + last 8 chars).
+
+    Returns: {
+        "keys": [
+            {
+                "id": "uuid",
+                "name": "Production Key",
+                "key_prefix": "veto_sk_live_",
+                "masked_key": "veto_sk_live_****abcd1234",
+                "environment": "live",
+                "rate_limit": 10000,
+                "created_at": "...",
+                "last_used_at": "..."
+            }
+        ]
+    }
+    """
+    user_id = get_user_from_jwt()
+    if not user_id:
+        return jsonify({"error": "Authentication required. Use Supabase JWT."}), 401
+
+    keys = list_user_keys(user_id)
+
+    # Add masked_key for identification (shows prefix + last 8 chars)
+    for key in keys:
+        prefix = key.get("key_prefix", "veto_sk_")
+        # Mask format: prefix + **** + last 8 chars (we only have prefix, so show it)
+        key["masked_key"] = f"{prefix}****"
+
+    return jsonify({"keys": keys})
+
+
+@app.route("/api/keys/<key_id>", methods=["DELETE"])
+def delete_key(key_id):
+    """
+    Revoke an API key.
+
+    The key will immediately stop working.
+    """
+    user_id = get_user_from_jwt()
+    if not user_id:
+        return jsonify({"error": "Authentication required. Use Supabase JWT."}), 401
+
+    # Validate UUID format
+    import re
+    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', key_id, re.I):
+        return jsonify({"error": "Invalid key ID format"}), 400
+
+    success = revoke_api_key(key_id, user_id)
+
+    if success:
+        return jsonify({"message": "Key revoked"}), 200
+    else:
+        return jsonify({"error": "Key not found or not owned by you"}), 404
+
+
+# ============== Production API (Requires API Key) ==============
+
+@app.route("/api/check", methods=["POST"])
+@require_user_api_key
+def check_transaction():
+    """
+    Main production endpoint - verify a transaction against VetoNet.
+
+    Requires API key: Authorization: Bearer veto_sk_xxx
+
+    Body: {
+        "prompt": "User's original request",
+        "payload": {
+            "item_description": "What the agent wants to buy",
+            "item_category": "electronics",
+            "unit_price": 50.00,
+            "quantity": 1,
+            "vendor": "amazon.com",
+            "currency": "USD",
+            "is_recurring": false,
+            "fees": []
+        }
+    }
+
+    Returns: {
+        "verdict": "approved" | "blocked",
+        "status": "APPROVED" | "VETO",
+        "reason": "Why it was blocked (if blocked)",
+        "confidence": 0.95,
+        "checks": [
+            {"name": "price", "passed": true, "reason": "..."},
+            ...
+        ],
+        "request_id": "uuid"
+    }
+    """
+    data = request.json or {}
+
+    # Validate input
+    valid, error = validate_payload(data)
+    if not valid:
+        return jsonify({"error": error}), 400
+
+    prompt = data.get("prompt", "")
+    payload_data = data.get("payload", {})
+
+    if not prompt:
+        return jsonify({"error": "prompt required"}), 400
+    if not payload_data:
+        return jsonify({"error": "payload required"}), 400
+
+    try:
+        # Normalize intent
+        if normalizer:
+            intent = normalizer.normalize(prompt)
+        else:
+            # Basic fallback without LLM
+            from vetonet.models import IntentAnchor
+            intent = IntentAnchor(
+                item_category=payload_data.get("item_category", "unknown"),
+                max_price=float(payload_data.get("unit_price", 100)),
+                currency=payload_data.get("currency", "USD"),
+                core_constraints=[]
+            )
+
+        # Build payload
+        fees = [Fee(name=f.get("name", ""), amount=f.get("amount", 0))
+                for f in payload_data.get("fees", [])]
+
+        payload = AgentPayload(
+            item_description=payload_data.get("item_description", ""),
+            item_category=payload_data.get("item_category", intent.item_category),
+            unit_price=float(payload_data.get("unit_price", 0)),
+            quantity=int(payload_data.get("quantity", 1)),
+            vendor=payload_data.get("vendor", "unknown.com"),
+            currency=payload_data.get("currency", "USD"),
+            is_recurring=payload_data.get("is_recurring", False),
+            fees=fees,
+        )
+
+        # Run VetoNet checks
+        result = engine.check(intent, payload)
+        approved = result.status == VetoStatus.APPROVED
+
+        # Extract confidence
+        confidence = None
+        for check in result.checks:
+            if check.name == "semantic" and check.score is not None:
+                confidence = check.score
+                break
+            if check.name == "classifier" and check.score is not None:
+                confidence = check.score
+                break
+
+        # Log for analytics (includes API key user info)
+        # Store FULL intent and payload for ML training
+        attack_id = log_attempt(anonymize_data({
+            "timestamp": datetime.now().isoformat(),
+            "type": "api_check",
+            "source": "api",
+            "prompt": prompt[:500],
+            "payload": payload_data,
+            "intent": intent.model_dump(),  # Full IntentAnchor for ML training
+            "approved": approved,
+            "checks": format_checks(result),
+            "confidence": confidence,
+            "reasoning": result.reason,
+            "api_key_prefix": request.api_key.key_prefix if hasattr(request, 'api_key') else None,
+        }))
+
+        return jsonify({
+            "verdict": "approved" if approved else "blocked",
+            "status": result.status.value,
+            "reason": result.reason,
+            "confidence": confidence,
+            "checks": format_checks(result),
+            "request_id": attack_id,
+        })
+
+    except Exception as e:
+        app.logger.error(f"Check error: {e}")
+        return jsonify({"error": "Check failed"}), 500
+
+
 @app.route("/api/classify", methods=["POST"])
+@require_rate_limit
 def classify():
     """
     Remote classifier endpoint for SDK users.
@@ -410,6 +786,7 @@ def _log_classifier_call(anchor, payload, result):
         app.logger.error(f"Telemetry log error: {e}")
 
 @app.route("/api/demo", methods=["POST"])
+@require_rate_limit
 def run_demo():
     """
     Standard demo mode - honest or compromised agent
@@ -472,13 +849,18 @@ def run_demo():
                     break
 
         # Log for analysis (anonymized) - returns attack_id for feedback
+        # Store FULL intent and payload for ML training
         attack_id = log_attempt(anonymize_data({
             "timestamp": datetime.now().isoformat(),
             "type": "demo",
-            "prompt": user_prompt[:100],  # Truncate for safety
+            "source": "playground",
+            "prompt": user_prompt[:500],
             "mode": mode,
-            "intent": {"item_category": intent.item_category, "max_price": intent.max_price},
+            "intent": intent.model_dump(),  # Full IntentAnchor for ML training
+            "payload": payload.model_dump(),  # Full AgentPayload for ML training
+            "attack_vector": "standard" if mode == "default" else mode,
             "approved": approved,
+            "bypassed": approved,  # For demo, approved = bypassed
             "checks": [{"name": c.name, "passed": c.passed, "score": c.score} for c in result.checks],
             "confidence": confidence,
             "reasoning": reasoning,
@@ -506,6 +888,7 @@ def run_demo():
         return jsonify({"error": "Processing failed"}), 500
 
 @app.route("/api/redteam", methods=["POST"])
+@require_rate_limit
 def red_team():
     """
     Red Team mode - user crafts custom attack payload
@@ -570,30 +953,30 @@ def red_team():
         # Higher score = more legitimate, lower = more attack-like
         is_likely_attack = classifier_score is None or classifier_score < 0.5
 
-        # Only log actual attack attempts (not legitimate transactions)
-        attack_id = None
-        if is_likely_attack:
-            attack_id = log_attempt(anonymize_data({
+        # Extract which check blocked it (for ML training)
+        blocked_by = None
+        if not bypassed:
+            for check in result.checks:
+                if not check.passed:
+                    blocked_by = check.name
+                    break
+
+        # Log ALL transactions for ML training (attacks AND bypasses are valuable)
+        attack_id = log_attempt(anonymize_data({
             "timestamp": datetime.now().isoformat(),
             "type": "redteam",
-            "prompt": user_prompt[:100],
+            "source": "playground",
+            "prompt": user_prompt[:500],
             "attack_vector": _classify_attack(attack_payload),
             "bypassed": bypassed,
+            "approved": approved,
+            "blocked_by": blocked_by,  # Track which check caught it
             "checks": [{"name": c.name, "passed": c.passed, "score": c.score} for c in result.checks],
-            "intent": {
-                "item_category": intent.item_category,
-                "max_price": intent.max_price,
-                "quantity": intent.quantity,
-            },
-            "payload": {
-                "unit_price": payload.unit_price,
-                "vendor": payload.vendor,
-                "item_category": payload.item_category,
-                "fees_total": sum(f.amount for f in payload.fees),
-            },
-                "confidence": confidence,
-                "reasoning": reasoning,
-            }))
+            "intent": intent.model_dump(),  # Full IntentAnchor for ML training
+            "payload": payload.model_dump(),  # Full AgentPayload for ML training
+            "confidence": confidence,
+            "reasoning": reasoning,
+        }))
 
         response = {
             "intent": intent.model_dump(),

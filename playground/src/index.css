@@ -47,6 +47,10 @@ body {
   margin: 0;
 }
 
+/* Tighter letter spacing for refined headings */
+h1 { letter-spacing: -0.03em; }
+h2 { letter-spacing: -0.02em; }
+
 /* Grid background */
 .grid-bg {
   background-image:
