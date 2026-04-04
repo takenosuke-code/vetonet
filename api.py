@@ -375,8 +375,12 @@ def get_user_from_jwt():
 
     Expects Authorization: Bearer <supabase_jwt>
     Returns user_id or None.
+
+    Uses JWKS endpoint for automatic key rotation support (ECC/RSA keys).
+    Falls back to legacy HS256 if SUPABASE_JWT_SECRET is set.
     """
     import jwt
+    from jwt import PyJWKClient
 
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
@@ -389,27 +393,41 @@ def get_user_from_jwt():
         return None
 
     try:
-        # SECURITY: Verify JWT signature to prevent token forgery
-        if SUPABASE_JWT_SECRET:
-            # Production: Verify signature with Supabase JWT secret
+        # Method 1: JWKS (modern - handles ECC key rotation)
+        if SUPABASE_URL:
+            jwks_url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+            jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["ES256", "RS256", "HS256"],
+                audience="authenticated"
+            )
+            return payload.get("sub")
+
+        # Method 2: Legacy HS256 fallback
+        elif SUPABASE_JWT_SECRET:
             payload = jwt.decode(
                 token,
                 SUPABASE_JWT_SECRET,
                 algorithms=["HS256"],
                 audience="authenticated"
             )
+            return payload.get("sub")
+
         else:
-            # SECURITY: Fail closed - reject JWT auth without secret
-            app.logger.error("SUPABASE_JWT_SECRET not set - rejecting JWT authentication")
+            app.logger.error("No SUPABASE_URL or SUPABASE_JWT_SECRET - rejecting JWT auth")
             return None
-        return payload.get("sub")  # Supabase puts user_id in 'sub'
+
     except jwt.ExpiredSignatureError:
         app.logger.warning("JWT token expired")
         return None
     except jwt.InvalidTokenError as e:
         app.logger.warning(f"Invalid JWT token: {e}")
         return None
-    except Exception:
+    except Exception as e:
+        app.logger.warning(f"JWT verification error: {e}")
         return None
 
 
