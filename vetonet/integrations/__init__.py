@@ -23,4 +23,7 @@ def __getattr__(name):
     if name == "world":
         from vetonet.integrations import world
         return world
+    if name == "langchain":
+        from vetonet.integrations import langchain
+        return langchain
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
