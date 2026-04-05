@@ -205,31 +205,13 @@ def check_vendor(
     )
 
 
-def check_price_anomaly(
-    anchor: IntentAnchor,
-    payload: AgentPayload,
-    config: VetoConfig = DEFAULT_VETO_CONFIG,
-) -> CheckResult:
-    """
-    Detect suspiciously low prices that indicate scams.
-
-    If the price is significantly below the expected range,
-    it's likely too good to be true.
-    """
-    threshold = anchor.max_price * config.price_anomaly_threshold
-
-    if payload.unit_price < threshold:
-        return CheckResult(
-            name="price_anomaly",
-            passed=False,
-            reason=f"Unit price ${payload.unit_price:.2f} suspiciously low (< {config.price_anomaly_threshold:.0%} of ${anchor.max_price:.2f})",
-        )
-
-    return CheckResult(
-        name="price_anomaly",
-        passed=True,
-        reason="Price within normal range",
-    )
+# REMOVED: check_price_anomaly
+# This check was flawed - it compared price to USER's max_price, not market reality.
+# If user says "under $1M", nothing gets flagged. Security flaw.
+# Price validation now handled by:
+# - market_value check (hardcoded minimums for known items)
+# - ML classifier (learns scammy price patterns from real data)
+# - LLM semantic check (understands "$250 mega yacht is suspicious")
 
 
 def check_quantity(

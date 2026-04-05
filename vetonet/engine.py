@@ -11,7 +11,6 @@ from vetonet.checks import (
     check_price,
     check_category,
     check_vendor,
-    check_price_anomaly,
     check_quantity,
     check_hidden_fees,
     check_subscription_trap,
@@ -32,19 +31,18 @@ class VetoEngine:
     matches the user's original intent.
 
     Check order (fast to slow):
-    1. Price check (deterministic)
+    1. Price check (deterministic) - total within budget
     2. Quantity check (deterministic)
     3. Category check (deterministic)
     4. Currency manipulation check (deterministic)
     5. Subscription trap check (deterministic)
     6. Hidden fees check (deterministic)
     7. Vendor check (deterministic)
-    8. Price anomaly check (deterministic)
-    9. Scam patterns check (deterministic)
-    10. Market value check (deterministic) - catches unrealistically cheap items
-    11. Crypto substitution check (deterministic)
-    12. ML Classifier (fast CPU-based pre-filter)
-    13. Semantic match (LLM-based, only for uncertain cases)
+    8. Scam patterns check (deterministic) - Nigerian prince, grandparent, etc.
+    9. Market value check (deterministic) - $1 iPhone is always a scam
+    10. Crypto substitution check (deterministic)
+    11. ML Classifier (fast CPU-based pre-filter)
+    12. Semantic match (LLM-based, only for uncertain cases)
     """
 
     def __init__(
@@ -85,7 +83,6 @@ class VetoEngine:
             lambda: check_subscription_trap(anchor, payload),
             lambda: check_hidden_fees(payload),
             lambda: check_vendor(payload, self.veto_config, anchor),
-            lambda: check_price_anomaly(anchor, payload, self.veto_config),
             lambda: check_scam_patterns(payload),
             lambda: check_market_value(payload),
             lambda: check_crypto_substitution(anchor, payload),
