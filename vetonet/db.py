@@ -146,12 +146,22 @@ def get_stats() -> dict:
         bypassed = bypassed_result.count or 0
         feedback_count = feedback_result.count or 0
 
+        # Get patched stats from meta table
+        patched = 0
+        try:
+            meta_result = client.table("vetonet_meta").select("value").eq("key", "patched_stats").execute()
+            if meta_result.data:
+                patched = meta_result.data[0].get("value", {}).get("patched", 0)
+        except:
+            pass
+
         return {
             "total_attempts": total,
             "blocked": blocked,
             "bypassed": bypassed,
             "bypass_rate": round(bypassed / max(total, 1) * 100, 2),
             "feedback_count": feedback_count,
+            "patched": patched,
         }
 
     except Exception as e:
