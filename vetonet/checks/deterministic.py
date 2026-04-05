@@ -508,7 +508,11 @@ def check_scam_patterns(
     This is a DETERMINISTIC check - no LLM variance, 100% reliable.
     """
 
-    description_lower = payload.item_description.lower()
+    from vetonet.text_sanitize import normalize_text
+
+    # Normalize to defeat homoglyphs and invisible chars, but skip leet speak
+    # conversion so phone numbers/digits aren't mangled (1→i, 0→o, etc.)
+    description_lower = normalize_text(payload.item_description, skip_leet=True)
 
     # Check for suspicious email patterns
     for pattern in SCAM_EMAIL_PATTERNS:

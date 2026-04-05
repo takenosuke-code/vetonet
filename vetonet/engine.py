@@ -153,7 +153,15 @@ class VetoEngine:
         # Determine whether to run the semantic check
         run_semantic = False
         if self.veto_config.semantic_mode == "always":
-            run_semantic = self.llm_client is not None
+            if self.llm_client is None:
+                # Fail CLOSED: if semantic mode is "always" but LLM is unavailable,
+                # VETO the transaction rather than silently approving without the check.
+                return VetoResult(
+                    status=VetoStatus.VETO,
+                    reason="Semantic check required (mode=always) but LLM unavailable",
+                    checks=checks,
+                )
+            run_semantic = True
         elif self.veto_config.semantic_mode == "smart":
             classifier_uncertain = classifier_result is None
             high_value = payload.unit_price >= self.veto_config.semantic_skip_threshold
