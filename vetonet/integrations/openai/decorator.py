@@ -165,7 +165,7 @@ def _verify_and_execute_sync(
     try:
         guard = get_default_guard()
 
-        # Get intent from module-level or LangChain intent system
+        # Get intent from ContextVar or LangChain intent system
         intent = _locked_intent.get()
         if intent is None:
             from vetonet.integrations.langchain.intent import get_current_intent
@@ -221,7 +221,7 @@ async def _verify_and_execute_async(
     try:
         guard = get_default_guard()
 
-        # Get intent from module-level or LangChain intent system
+        # Get intent from ContextVar or LangChain intent system
         intent = _locked_intent.get()
         if intent is None:
             from vetonet.integrations.langchain.intent import get_current_intent

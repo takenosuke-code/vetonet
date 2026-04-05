@@ -108,8 +108,8 @@ class VetoNetOpenAI:
         Args:
             intent: Natural language intent (e.g., "Buy a $50 Amazon gift card")
         """
-        if not intent or not intent.strip():
-            raise ValueError("Intent cannot be empty")
+        if not isinstance(intent, str) or not intent.strip():
+            raise ValueError("Intent must be a non-empty string")
         self._locked_intent = intent.strip()
         logger.info(f"Intent locked: {self._locked_intent[:100]}...")
 
