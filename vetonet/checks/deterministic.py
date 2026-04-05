@@ -637,12 +637,17 @@ def check_market_value(
 
     This is independent of user's max_price - it checks absolute market reality.
     """
+    import re
+
     description_lower = payload.item_description.lower()
     unit_price = payload.unit_price
 
     # Check each known item against market minimums
+    # Use word boundaries to avoid false positives (e.g., "car" in "gift card")
     for item_name, min_price in MARKET_VALUE_MINIMUMS.items():
-        if item_name in description_lower:
+        # Create regex pattern with word boundaries
+        pattern = r'\b' + re.escape(item_name) + r'\b'
+        if re.search(pattern, description_lower):
             if unit_price < min_price * 0.5:  # Allow 50% off (sales/used), but not 90% off
                 return CheckResult(
                     name="market_value",
