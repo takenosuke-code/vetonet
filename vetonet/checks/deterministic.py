@@ -466,8 +466,10 @@ ROMANCE_SCAM_PATTERNS = [
 
 # Market value expectations for common high-value items (minimum realistic price)
 # If an item sells for WAY below this, it's likely a scam
+# NOTE: Only include items where low price is ALWAYS suspicious
+# Exclude rentable items (yacht, car, boat) - $300 yacht RENTAL is fine
 MARKET_VALUE_MINIMUMS = {
-    # Electronics
+    # Electronics - these are never rented, always purchased
     "iphone": 400,
     "ipad": 250,
     "macbook": 600,
@@ -487,7 +489,7 @@ MARKET_VALUE_MINIMUMS = {
     "laptop": 200,
     "gaming pc": 500,
     "gaming computer": 500,
-    # Luxury items
+    # Luxury items - counterfeits are the scam, not rentals
     "rolex": 3000,
     "omega": 1500,
     "louis vuitton": 500,
@@ -495,19 +497,6 @@ MARKET_VALUE_MINIMUMS = {
     "hermes": 500,
     "chanel": 500,
     "prada": 300,
-    # Vehicles & big ticket
-    "yacht": 20000,
-    "private jet": 500000,
-    "jet": 500000,
-    "boat": 2000,
-    "car": 2000,
-    "tesla": 25000,
-    "motorcycle": 1500,
-    # Travel (per person)
-    "first class flight": 1000,
-    "business class": 500,
-    "private island": 50000,
-    "mansion": 100000,
 }
 
 
@@ -632,15 +621,35 @@ def check_market_value(
     Catches attacks like:
     - $1 iPhone (market value: $400+)
     - $20 PS5 (market value: $350+)
-    - $40 private yacht (market value: $20,000+)
     - $499 Rolex (market value: $3,000+)
 
     This is independent of user's max_price - it checks absolute market reality.
+
+    NOTE: Skips rental/reservation items - $300 yacht RENTAL is fine,
+    $300 yacht PURCHASE is a scam. This nuance requires semantic understanding.
     """
     import re
 
     description_lower = payload.item_description.lower()
+    category_lower = (payload.item_category or "").lower()
     unit_price = payload.unit_price
+
+    # Skip for rentals/reservations - pricing is completely different
+    # $300/day yacht rental is normal, $300 yacht purchase is a scam
+    rental_keywords = [
+        'rental', 'rent', 'reservation', 'reserve', 'booking', 'book',
+        'per day', 'per night', 'per hour', '/day', '/night', '/hour',
+        'for 1 day', 'for 2 day', 'for 3 day', 'for 4 day', 'for 5 day',
+        'for 1 night', 'for 2 night', 'for 3 night',
+        'charter', 'hire', 'lease',
+    ]
+
+    if any(kw in description_lower or kw in category_lower for kw in rental_keywords):
+        return CheckResult(
+            name="market_value",
+            passed=True,
+            reason="Rental/reservation - market value check skipped",
+        )
 
     # Check each known item against market minimums
     # Use word boundaries to avoid false positives (e.g., "car" in "gift card")
