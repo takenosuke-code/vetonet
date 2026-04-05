@@ -26,4 +26,13 @@ def __getattr__(name):
     if name == "langchain":
         from vetonet.integrations import langchain
         return langchain
+    if name == "anthropic":
+        from vetonet.integrations import anthropic
+        return anthropic
+    if name == "openai":
+        from vetonet.integrations import openai
+        return openai
+    if name == "crewai":
+        from vetonet.integrations import crewai
+        return crewai
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
