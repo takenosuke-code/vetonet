@@ -8,6 +8,7 @@ Eliminates decorator order confusion by handling both in one.
 import functools
 import inspect
 import logging
+import os
 from typing import Any, Callable, Dict, Optional, TypeVar, Union
 
 from .async_utils import is_async_callable
@@ -30,6 +31,7 @@ T = TypeVar("T")
 try:
     from langchain_core.tools import StructuredTool, tool as langchain_tool
     from langchain_core.tools import ToolException
+
     _HAS_LANGCHAIN = True
 except ImportError:
     _HAS_LANGCHAIN = False
@@ -45,12 +47,10 @@ def protected_tool(
     field_map: Optional[Dict[str, str]] = None,
     defaults: Optional[Dict[str, Any]] = None,
     auto_infer: bool = True,
-
     # Tool metadata (passed to LangChain @tool)
     name: Optional[str] = None,
     description: Optional[str] = None,
     return_direct: bool = False,
-
     # VetoNet behavior
     fail_open: bool = False,
     on_veto: Optional[Callable[[VetoBlockedException], Any]] = None,
@@ -91,6 +91,7 @@ def protected_tool(
     Returns:
         LangChain StructuredTool with VetoNet protection
     """
+
     def decorator(fn: Callable) -> Union[Callable, "StructuredTool"]:
         # Get function metadata
         tool_name = name or fn.__name__
@@ -112,6 +113,7 @@ def protected_tool(
         is_async = is_async_callable(fn)
 
         if is_async:
+
             @functools.wraps(fn)
             async def async_wrapper(*args, **kwargs) -> Any:
                 return await _execute_with_verification(
@@ -122,11 +124,10 @@ def protected_tool(
             async_wrapper.__signature__ = inspect.signature(fn)
             wrapper = async_wrapper
         else:
+
             @functools.wraps(fn)
             def sync_wrapper(*args, **kwargs) -> Any:
-                return _execute_with_verification_sync(
-                    fn, args, kwargs, tool_name, config, on_veto
-                )
+                return _execute_with_verification_sync(fn, args, kwargs, tool_name, config, on_veto)
 
             # Preserve signature for LangChain
             sync_wrapper.__signature__ = inspect.signature(fn)
@@ -159,7 +160,7 @@ async def _execute_with_verification(
     tool_name: str,
     config: ToolSignatureConfig,
     on_veto: Optional[Callable],
-    is_async: bool
+    is_async: bool,
 ) -> Any:
     """Execute function with VetoNet verification (async version)."""
     # Import here to avoid circular import
@@ -168,36 +169,42 @@ async def _execute_with_verification(
     try:
         guard = get_default_guard()
 
-        # Get intent
+        # Get intent — missing intent always raises, regardless of fail_open
         intent = get_current_intent()
         if intent is None:
-            if config.fail_open:
-                logger.warning(f"No intent captured for {tool_name}, allowing (fail_open)")
-            else:
-                raise IntentNotSetError(tool_name=tool_name)
+            raise IntentNotSetError(tool_name=tool_name)
 
         # Map args to payload
         registry = get_registry()
         payload = registry.map_to_payload(tool_name, kwargs)
 
         # Verify with VetoNet
-        if intent is not None:
-            result = await guard.verify_async(intent.raw_message, payload)
+        assert intent is not None  # guaranteed by the check above
+        result = await guard.verify_async(intent.raw_message, payload)
 
-            if result.blocked:
-                exc = VetoBlockedToolException(
+        if result.blocked:
+            exc = (
+                VetoBlockedToolException(
                     reason=result.reason,
                     confidence=result.confidence,
-                    request_id=result.request_id
-                ) if LANGCHAIN_AVAILABLE else VetoBlockedException(
-                    reason=result.reason,
-                    confidence=result.confidence,
-                    request_id=result.request_id
+                    request_id=result.request_id,
                 )
+                if LANGCHAIN_AVAILABLE
+                else VetoBlockedException(
+                    reason=result.reason,
+                    confidence=result.confidence,
+                    request_id=result.request_id,
+                )
+            )
 
-                if on_veto:
-                    return on_veto(exc)
-                raise exc
+            if on_veto:
+                logger.warning(
+                    "[SECURITY] on_veto callback intercepted block for %s: %s",
+                    tool_name,
+                    exc.reason,
+                )
+                return on_veto(exc)
+            raise exc
 
         # Verification passed - execute
         return await fn(*args, **kwargs)
@@ -207,18 +214,36 @@ async def _execute_with_verification(
     except IntentNotSetError:
         raise
     except CircuitOpenError:
-        if config.fail_open:
-            logger.warning(f"Circuit open for {tool_name}, allowing (fail_open)")
+        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
+            logger.critical(
+                "[SECURITY] Verification bypassed (circuit open) for %s — VETONET_ALLOW_FAIL_OPEN is set",
+                tool_name,
+            )
             return await fn(*args, **kwargs)
-        raise VetoBlockedToolException(
-            reason="VetoNet unavailable (circuit open)"
-        ) if LANGCHAIN_AVAILABLE else VetoBlockedException(
-            reason="VetoNet unavailable (circuit open)"
+        if config.fail_open:
+            logger.warning(
+                "Circuit open for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing",
+                tool_name,
+            )
+        raise (
+            VetoBlockedToolException(reason="VetoNet unavailable (circuit open)")
+            if LANGCHAIN_AVAILABLE
+            else VetoBlockedException(reason="VetoNet unavailable (circuit open)")
         )
     except VetoNetError as e:
-        if config.fail_open:
-            logger.warning(f"VetoNet error for {tool_name}: {e}, allowing (fail_open)")
+        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
+            logger.critical(
+                "[SECURITY] Verification bypassed (VetoNet error) for %s — VETONET_ALLOW_FAIL_OPEN is set: %s",
+                tool_name,
+                e,
+            )
             return await fn(*args, **kwargs)
+        if config.fail_open:
+            logger.warning(
+                "VetoNet error for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing: %s",
+                tool_name,
+                e,
+            )
         raise
 
 
@@ -228,7 +253,7 @@ def _execute_with_verification_sync(
     kwargs: dict,
     tool_name: str,
     config: ToolSignatureConfig,
-    on_veto: Optional[Callable]
+    on_veto: Optional[Callable],
 ) -> Any:
     """Execute function with VetoNet verification (sync version)."""
     from .guard import get_default_guard
@@ -236,36 +261,42 @@ def _execute_with_verification_sync(
     try:
         guard = get_default_guard()
 
-        # Get intent
+        # Get intent — missing intent always raises, regardless of fail_open
         intent = get_current_intent()
         if intent is None:
-            if config.fail_open:
-                logger.warning(f"No intent captured for {tool_name}, allowing (fail_open)")
-            else:
-                raise IntentNotSetError(tool_name=tool_name)
+            raise IntentNotSetError(tool_name=tool_name)
 
         # Map args to payload
         registry = get_registry()
         payload = registry.map_to_payload(tool_name, kwargs)
 
         # Verify with VetoNet
-        if intent is not None:
-            result = guard.verify_sync(intent.raw_message, payload)
+        assert intent is not None  # guaranteed by the check above
+        result = guard.verify_sync(intent.raw_message, payload)
 
-            if result.blocked:
-                exc = VetoBlockedToolException(
+        if result.blocked:
+            exc = (
+                VetoBlockedToolException(
                     reason=result.reason,
                     confidence=result.confidence,
-                    request_id=result.request_id
-                ) if LANGCHAIN_AVAILABLE else VetoBlockedException(
-                    reason=result.reason,
-                    confidence=result.confidence,
-                    request_id=result.request_id
+                    request_id=result.request_id,
                 )
+                if LANGCHAIN_AVAILABLE
+                else VetoBlockedException(
+                    reason=result.reason,
+                    confidence=result.confidence,
+                    request_id=result.request_id,
+                )
+            )
 
-                if on_veto:
-                    return on_veto(exc)
-                raise exc
+            if on_veto:
+                logger.warning(
+                    "[SECURITY] on_veto callback intercepted block for %s: %s",
+                    tool_name,
+                    exc.reason,
+                )
+                return on_veto(exc)
+            raise exc
 
         # Verification passed - execute
         return fn(*args, **kwargs)
@@ -275,18 +306,36 @@ def _execute_with_verification_sync(
     except IntentNotSetError:
         raise
     except CircuitOpenError:
-        if config.fail_open:
-            logger.warning(f"Circuit open for {tool_name}, allowing (fail_open)")
+        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
+            logger.critical(
+                "[SECURITY] Verification bypassed (circuit open) for %s — VETONET_ALLOW_FAIL_OPEN is set",
+                tool_name,
+            )
             return fn(*args, **kwargs)
-        raise VetoBlockedToolException(
-            reason="VetoNet unavailable (circuit open)"
-        ) if LANGCHAIN_AVAILABLE else VetoBlockedException(
-            reason="VetoNet unavailable (circuit open)"
+        if config.fail_open:
+            logger.warning(
+                "Circuit open for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing",
+                tool_name,
+            )
+        raise (
+            VetoBlockedToolException(reason="VetoNet unavailable (circuit open)")
+            if LANGCHAIN_AVAILABLE
+            else VetoBlockedException(reason="VetoNet unavailable (circuit open)")
         )
     except VetoNetError as e:
-        if config.fail_open:
-            logger.warning(f"VetoNet error for {tool_name}: {e}, allowing (fail_open)")
+        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
+            logger.critical(
+                "[SECURITY] Verification bypassed (VetoNet error) for %s — VETONET_ALLOW_FAIL_OPEN is set: %s",
+                tool_name,
+                e,
+            )
             return fn(*args, **kwargs)
+        if config.fail_open:
+            logger.warning(
+                "VetoNet error for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing: %s",
+                tool_name,
+                e,
+            )
         raise
 
 

@@ -9,6 +9,7 @@ from typing import Literal
 @dataclass(frozen=True)
 class LLMConfig:
     """Configuration for the LLM backend."""
+
     provider: Literal["ollama", "groq", "anthropic", "openai", "none"] = "ollama"
     model: str = "qwen2.5:7b"
     base_url: str | None = "http://localhost:11434"
@@ -20,12 +21,21 @@ class LLMConfig:
 @dataclass(frozen=True)
 class VetoConfig:
     """Configuration for the Veto Engine."""
+
     # Price settings
     price_tolerance: float = 0.0  # Strict: no tolerance
     price_anomaly_threshold: float = 0.3  # Flag if < 30% of expected
 
     # Semantic settings
     semantic_threshold: float = 0.7  # Minimum similarity score
+    semantic_mode: str = "always"  # "always", "smart", or "never"
+    semantic_skip_threshold: float = (
+        100.0  # In "smart" mode, price threshold for forcing semantic check
+    )
+
+    # Suspicion scoring (combo attack detection)
+    suspicion_threshold: float = 0.6
+    suspicion_shadow_mode: bool = True
 
     # Vendor settings
     trusted_vendors: tuple[str, ...] = (
@@ -42,12 +52,27 @@ class VetoConfig:
 
     suspicious_tlds: tuple[str, ...] = (
         # Original list
-        ".ru", ".cn", ".tk", ".xyz",
-        ".top", ".buzz", ".win", ".loan",
+        ".ru",
+        ".cn",
+        ".tk",
+        ".xyz",
+        ".top",
+        ".buzz",
+        ".win",
+        ".loan",
         # Added based on attack report (excluding .io - too many legit sites)
-        ".cc", ".site", ".online", ".info",
-        ".club", ".icu", ".work", ".click",
-        ".gq", ".ml", ".cf", ".ga",  # Free TLDs often abused
+        ".cc",
+        ".site",
+        ".online",
+        ".info",
+        ".club",
+        ".icu",
+        ".work",
+        ".click",
+        ".gq",
+        ".ml",
+        ".cf",
+        ".ga",  # Free TLDs often abused
     )
 
 

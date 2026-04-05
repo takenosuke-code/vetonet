@@ -5,10 +5,16 @@ These checks use LLM inference to understand meaning and context.
 They catch attacks that deterministic checks would miss.
 """
 
+import html
+import logging
+import math
 import re
+
 from vetonet.models import IntentAnchor, AgentPayload, CheckResult
 from vetonet.llm.client import LLMClient
 from vetonet.config import VetoConfig, DEFAULT_VETO_CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 def sanitize_for_prompt(text: str, max_length: int = 500) -> str:
@@ -24,44 +30,44 @@ def sanitize_for_prompt(text: str, max_length: int = 500) -> str:
 
     # Remove common prompt injection patterns
     injection_patterns = [
-        r'(?i)ignore\s+(all\s+)?(previous|above|prior)',
-        r'(?i)disregard\s+(all\s+)?(instructions|rules)',
-        r'(?i)forget\s+(everything|all)',
-        r'(?i)system\s*:',
-        r'(?i)assistant\s*:',
-        r'(?i)user\s*:',
-        r'(?i)```',  # Code blocks often used to inject
-        r'(?i)\[INST\]',  # Llama instruction format
-        r'(?i)<\|.*?\|>',  # Special tokens
-        r'(?i)<<SYS>>',  # System prompt markers
-        r'(?i)###\s*(instruction|system|human|assistant)',
+        r"(?i)ignore\s+(all\s+)?(previous|above|prior)",
+        r"(?i)disregard\s+(all\s+)?(instructions|rules)",
+        r"(?i)forget\s+(everything|all)",
+        r"(?i)system\s*:",
+        r"(?i)assistant\s*:",
+        r"(?i)user\s*:",
+        r"(?i)```",  # Code blocks often used to inject
+        r"(?i)\[INST\]",  # Llama instruction format
+        r"(?i)<\|.*?\|>",  # Special tokens
+        r"(?i)<<SYS>>",  # System prompt markers
+        r"(?i)###\s*(instruction|system|human|assistant)",
     ]
 
     for pattern in injection_patterns:
-        text = re.sub(pattern, '[FILTERED]', text)
+        text = re.sub(pattern, "[FILTERED]", text)
 
     # Escape characters that could break JSON parsing
-    text = text.replace('\\', '\\\\')
+    text = text.replace("\\", "\\\\")
     text = text.replace('"', '\\"')
-    text = text.replace('\n', ' ')
-    text = text.replace('\r', ' ')
+    text = text.replace("\n", " ")
+    text = text.replace("\r", " ")
 
     # Remove any attempts to inject score directly
-    text = re.sub(r'(?i)["\']?\s*score["\']?\s*:\s*[\d.]+', '[FILTERED]', text)
+    text = re.sub(r'(?i)["\']?\s*score["\']?\s*:\s*[\d.]+', "[FILTERED]", text)
 
     # Handle leet speak variations of "score" (sc0re, scor3, etc.)
-    text = re.sub(r'(?i)["\']?\s*sc[o0]r[e3]["\']?\s*[:=]\s*[\d.]+', '[FILTERED]', text)
+    text = re.sub(r'(?i)["\']?\s*sc[o0]r[e3]["\']?\s*[:=]\s*[\d.]+', "[FILTERED]", text)
 
     # Handle leet speak variations of injection keywords
     # Convert common leet speak before checking patterns
     leet_text = text.lower()
-    leet_map = {'0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a'}
+    leet_map = {"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a"}
     for leet, char in leet_map.items():
         leet_text = leet_text.replace(leet, char)
 
     # Check for injection patterns in de-leeted text
-    if re.search(r'ignore\s+(all\s+)?(previous|above|prior)', leet_text):
-        text = '[FILTERED - INJECTION DETECTED]'
+    if re.search(r"ignore\s+(all\s+)?(previous|above|prior)", leet_text):
+        text = "[FILTERED - INJECTION DETECTED]"
 
     return text.strip()
 
@@ -130,6 +136,45 @@ Examples:
 Your JSON:"""
 
 
+def _validate_score(raw: object) -> float:
+    """Validate and sanitize an LLM-returned score to a safe float in [0.0, 1.0].
+
+    Guards against bool coercion (float(True)==1.0), NaN/Inf injection,
+    out-of-range values, and non-numeric types.
+    """
+    if isinstance(raw, bool):
+        logger.warning("LLM returned bool score %r — coercing to 0.0", raw)
+        return 0.0
+
+    try:
+        score = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("LLM returned non-numeric score %r — coercing to 0.0", raw)
+        return 0.0
+
+    if not math.isfinite(score):
+        logger.warning("LLM returned non-finite score %r — coercing to 0.0", raw)
+        return 0.0
+
+    if not 0.0 <= score <= 1.0:
+        logger.warning("LLM returned out-of-range score %r — coercing to 0.0", raw)
+        return 0.0
+
+    return score
+
+
+def _sanitize_reason(raw: object) -> str:
+    """Sanitize an LLM-returned reason string.
+
+    Truncates, strips control characters, and HTML-escapes to prevent XSS.
+    """
+    text = str(raw)
+    text = text[:500]
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
+    text = html.escape(text)
+    return text.strip()
+
+
 def check_semantic_match(
     anchor: IntentAnchor,
     payload: AgentPayload,
@@ -156,7 +201,7 @@ def check_semantic_match(
 
     if anchor.core_constraints:
         # Use constraint-based matching
-        constraints_str = ", ".join(anchor.core_constraints)
+        constraints_str = ", ".join(sanitize_for_prompt(c) for c in anchor.core_constraints)
         prompt = SEMANTIC_PROMPT_TEMPLATE.format(
             item_description=safe_description,
             constraints=constraints_str,
@@ -171,8 +216,8 @@ def check_semantic_match(
 
     try:
         result = llm_client.query_json(prompt)
-        score = float(result.get("score", 0))
-        reason = result.get("reason", "No reason provided")
+        score = _validate_score(result.get("score", 0))
+        reason = _sanitize_reason(result.get("reason", "No reason provided"))
 
         passed = score >= config.semantic_threshold
 
@@ -184,10 +229,11 @@ def check_semantic_match(
         )
 
     except Exception as e:
-        # On error, be conservative and fail
+        # Log full error server-side, return generic message to caller
+        logger.error("Semantic check error: %s", e)
         return CheckResult(
             name="semantic",
             passed=False,
-            reason=f"Semantic check failed: {str(e)}",
+            reason="Semantic check unavailable",
             score=0.0,
         )

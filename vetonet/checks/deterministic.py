@@ -5,8 +5,11 @@ These checks use pure Python logic with no LLM calls.
 They are fast, predictable, and free.
 """
 
+import re
+
 from vetonet.models import IntentAnchor, AgentPayload, CheckResult
 from vetonet.config import VetoConfig, DEFAULT_VETO_CONFIG
+from vetonet.text_sanitize import normalize_text
 
 
 # Fees that are generally acceptable
@@ -14,34 +17,22 @@ ALLOWED_FEES = {"tax", "sales tax", "vat", "shipping", "delivery"}
 
 # Fees that are suspicious
 SUSPICIOUS_FEES = {
-    "service fee", "processing fee", "convenience fee",
-    "handling fee", "platform fee", "admin fee",
-    "priority fee", "express fee", "rush fee",
-    "insurance", "protection", "warranty",
-    "donation", "tip", "gratuity",
+    "service fee",
+    "processing fee",
+    "convenience fee",
+    "handling fee",
+    "platform fee",
+    "admin fee",
+    "priority fee",
+    "express fee",
+    "rush fee",
+    "insurance",
+    "protection",
+    "warranty",
+    "donation",
+    "tip",
+    "gratuity",
 }
-
-# Leet speak / obfuscation mapping for fee detection
-LEET_MAP = str.maketrans({
-    '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's',
-    '7': 't', '@': 'a', '$': 's', '!': 'i',
-})
-
-
-def normalize_fee_name(name: str) -> str:
-    """
-    Normalize fee name to defeat obfuscation attacks.
-    Handles: leet speak, hyphens, underscores, no spaces.
-    """
-    # Lowercase
-    normalized = name.lower()
-    # Convert leet speak: s3rvice -> service
-    normalized = normalized.translate(LEET_MAP)
-    # Remove hyphens and underscores completely (proc-essing -> processing)
-    normalized = normalized.replace("-", "").replace("_", "")
-    # Collapse multiple spaces
-    normalized = " ".join(normalized.split())
-    return normalized
 
 
 def check_price(
@@ -67,10 +58,14 @@ def check_price(
             reason=f"Total ${total:.2f} ({breakdown}) exceeds max ${anchor.max_price:.2f}",
         )
 
+    ratio = total / (max_allowed if max_allowed > 0 else 1)
+    price_suspicion = min(0.3, (ratio - 0.95) * 6.0) if ratio > 0.95 else 0.0
+
     return CheckResult(
         name="price",
         passed=True,
         reason=f"Total ${total:.2f} within budget",
+        suspicion_weight=price_suspicion,
     )
 
 
@@ -78,7 +73,7 @@ def normalize_category(category: str) -> str:
     """Normalize category for comparison (handles plurals, spaces, etc.)."""
     normalized = category.lower().strip()
     # Remove trailing 's' for plural handling
-    if normalized.endswith('s') and not normalized.endswith('ss'):
+    if normalized.endswith("s") and not normalized.endswith("ss"):
         normalized = normalized[:-1]
     # Replace spaces and dashes with underscores
     normalized = normalized.replace(" ", "_").replace("-", "_")
@@ -126,7 +121,7 @@ def check_vendor(
     2. Brand-vendor mismatch (amazon-giftcards.com is NOT amazon.com)
     3. Trusted vendor allowlist (optional)
     """
-    vendor_lower = payload.vendor.lower()
+    vendor_lower = normalize_text(payload.vendor, preserve_hyphens=True, skip_leet=True)
 
     # Check for suspicious TLDs
     for tld in config.suspicious_tlds:
@@ -142,7 +137,7 @@ def check_vendor(
     if anchor and anchor.core_constraints:
         for constraint in anchor.core_constraints:
             if constraint.lower().startswith("brand:"):
-                brand = constraint.split(":", 1)[1].lower().strip()
+                brand = normalize_text(constraint.split(":", 1)[1].strip(), skip_leet=True)
 
                 # Map known brands to their official domains
                 # Expanded list based on attack report findings
@@ -185,8 +180,10 @@ def check_vendor(
                 }
 
                 if brand in official_domains:
-                    is_official = any(vendor_lower == domain or vendor_lower.endswith("." + domain)
-                                     for domain in official_domains[brand])
+                    is_official = any(
+                        vendor_lower == domain or vendor_lower.endswith("." + domain)
+                        for domain in official_domains[brand]
+                    )
                     if not is_official:
                         return CheckResult(
                             name="vendor",
@@ -197,11 +194,13 @@ def check_vendor(
     # Check if trusted (informational, doesn't fail)
     is_trusted = vendor_lower in config.trusted_vendors
     status = "trusted" if is_trusted else "unknown"
+    vendor_suspicion = 0.2 if (not is_trusted) else 0.0
 
     return CheckResult(
         name="vendor",
         passed=True,
         reason=f"Vendor '{payload.vendor}' is {status}",
+        suspicion_weight=vendor_suspicion,
     )
 
 
@@ -262,14 +261,17 @@ def check_hidden_fees(
 
     for fee in payload.fees:
         # Normalize fee name to defeat obfuscation
-        fee_name_normalized = normalize_fee_name(fee.name)
+        fee_name_normalized = normalize_text(fee.name)
         fee_name_no_spaces = fee_name_normalized.replace(" ", "")
 
         # Check against suspicious fee patterns
         for suspicious in SUSPICIOUS_FEES:
             suspicious_no_spaces = suspicious.replace(" ", "")
-            # Match either with or without spaces
-            if suspicious in fee_name_normalized or suspicious_no_spaces in fee_name_no_spaces:
+            # Word-boundary match for spaced form; substring match for no-spaces form
+            if (
+                re.search(r"\b" + re.escape(suspicious) + r"\b", fee_name_normalized)
+                or suspicious_no_spaces in fee_name_no_spaces
+            ):
                 suspicious_found.append(f"{fee.name}: ${fee.amount:.2f}")
                 break
 
@@ -280,10 +282,16 @@ def check_hidden_fees(
             reason=f"Suspicious fees detected: {', '.join(suspicious_found)}",
         )
 
+    total_fees = sum(f.amount for f in payload.fees) if payload.fees else 0.0
+    fees_suspicion = (
+        min(0.3, total_fees / max(payload.unit_price, 1) * 0.5) if total_fees > 0 else 0.0
+    )
+
     return CheckResult(
         name="hidden_fees",
         passed=True,
         reason="No suspicious fees",
+        suspicion_weight=fees_suspicion,
     )
 
 
@@ -344,106 +352,106 @@ def check_currency_manipulation(
 
 # Suspicious email patterns commonly used in gift card scams
 SCAM_EMAIL_PATTERNS = [
-    r'urgent[._-]?payment',
-    r'payment[._-]?required',
-    r'irs[._-]?payment',
-    r'tax[._-]?payment',
-    r'tech[._-]?support',
-    r'microsoft[._-]?support',
-    r'apple[._-]?support',
-    r'amazon[._-]?support',
-    r'refund[._-]?dept',
-    r'lottery[._-]?winner',
-    r'prize[._-]?claim',
-    r'emergency[._-]?fund',
-    r'bitcoin[._-]?payment',
-    r'crypto[._-]?transfer',
-    r'wire[._-]?transfer',
-    r'western[._-]?union',
-    r'moneygram',
-    r'gift[._-]?card[._-]?payment',
+    r"urgent[._-]?payment",
+    r"payment[._-]?required",
+    r"irs[._-]?payment",
+    r"tax[._-]?payment",
+    r"tech[._-]?support",
+    r"microsoft[._-]?support",
+    r"apple[._-]?support",
+    r"amazon[._-]?support",
+    r"refund[._-]?dept",
+    r"lottery[._-]?winner",
+    r"prize[._-]?claim",
+    r"emergency[._-]?fund",
+    r"bitcoin[._-]?payment",
+    r"crypto[._-]?transfer",
+    r"wire[._-]?transfer",
+    r"western[._-]?union",
+    r"moneygram",
+    r"gift[._-]?card[._-]?payment",
 ]
 
 # Suspicious phrases in gift card descriptions
 SCAM_DESCRIPTION_PATTERNS = [
-    r'send\s+to\s*:\s*\S+@\S+',  # "send to: email@domain"
-    r'email\s+to\s*:\s*\S+@\S+',  # "email to: email@domain"
-    r'recipient\s*:\s*\S+@\S+',  # "recipient: email@domain"
-    r'deliver\s+to\s*:\s*\S+@\S+',  # "deliver to: email@domain"
-    r'for\s*:\s*\S+@\S+',  # "for: email@domain"
-    r'@(gmail|yahoo|hotmail|outlook|protonmail)\.(com|net|org)',  # Common free email providers in description
-    r'whatsapp\s*[+:]?\s*[\d\-\s]+',  # WhatsApp numbers
-    r'telegram\s*[+:]?\s*[@\w]+',  # Telegram handles
-    r'call\s+(me|us|back)\s+at',  # Call back scams
-    r'(urgent|immediate|asap|emergency)\s+(payment|transfer|send)',  # Urgency language
-    r'(irs|fbi|ssa|dea|ice)\s+(payment|fine|penalty)',  # Government impersonation
-    r'(arrest|warrant|lawsuit)\s+',  # Legal threats
-    r'(lottery|sweepstakes|prize|winner)\s+(claim|fee|payment)',  # Lottery scams
-    r'(processing|activation|release)\s+fee',  # Fake fees
-    r'(guaranteed|instant)\s+(return|profit|income)',  # Investment scams
-    r'\+1[-\s]?\d{3}[-\s]?\d{3}[-\s]?\d{4}',  # US phone numbers
-    r'\+\d{1,3}[-\s]?\d{6,12}',  # International phone numbers
+    r"send\s+to\s*:\s*\S+@\S+",  # "send to: email@domain"
+    r"email\s+to\s*:\s*\S+@\S+",  # "email to: email@domain"
+    r"recipient\s*:\s*\S+@\S+",  # "recipient: email@domain"
+    r"deliver\s+to\s*:\s*\S+@\S+",  # "deliver to: email@domain"
+    r"for\s*:\s*\S+@\S+",  # "for: email@domain"
+    r"@(gmail|yahoo|hotmail|outlook|protonmail)\.(com|net|org)",  # Common free email providers in description
+    r"whatsapp\s*[+:]?\s*[\d\-\s]+",  # WhatsApp numbers
+    r"telegram\s*[+:]?\s*[@\w]+",  # Telegram handles
+    r"call\s+(me|us|back)\s+at",  # Call back scams
+    r"(urgent|immediate|asap|emergency)\s+(payment|transfer|send)",  # Urgency language
+    r"(irs|fbi|ssa|dea|ice)\s+(payment|fine|penalty)",  # Government impersonation
+    r"(arrest|warrant|lawsuit)\s+",  # Legal threats
+    r"(lottery|sweepstakes|prize|winner)\s+(claim|fee|payment)",  # Lottery scams
+    r"(processing|activation|release)\s+fee",  # Fake fees
+    r"(guaranteed|instant)\s+(return|profit|income)",  # Investment scams
+    r"\+1[-\s]?\d{3}[-\s]?\d{3}[-\s]?\d{4}",  # US phone numbers
+    r"\+\d{1,3}[-\s]?\d{6,12}",  # International phone numbers
 ]
 
 # Nigerian prince / advance fee scam patterns
 ADVANCE_FEE_SCAM_PATTERNS = [
-    r'(prince|princess|king|royal|minister|diplomat)\s+(of\s+)?(nigeria|africa|ghana|congo|sudan)',
-    r'(inheritance|estate|fortune|fund|money)\s+(of|worth|valued)\s+\$?\d+\s*(million|billion|m|b)',
-    r'(deceased|late|departed)\s+(father|mother|uncle|relative|client|businessman)',
-    r'(bank|account|fund)\s+in\s+(africa|nigeria|ghana|overseas)',
-    r'(transfer|move|release)\s+(the\s+)?(fund|money|inheritance|estate)',
-    r'(processing|transfer|legal|documentation)\s+fee',
-    r'(stranded|stuck|trapped)\s+(fund|money|inheritance)',
-    r'(confidential|secret|private)\s+(business|transaction|deal|proposal)',
-    r'(god|blessing|divine)\s+(has\s+)?(directed|led|chosen)',
-    r'(widow|orphan)\s+of\s+(late|deceased)',
-    r'(oil|gold|diamond)\s+(contract|deal|business)',
-    r'100%\s+(safe|secure|risk.?free)',
-    r'(your\s+)?share.*(\d+|percent|%)',
+    r"(prince|princess|king|royal|minister|diplomat)\s+(of\s+)?(nigeria|africa|ghana|congo|sudan)",
+    r"(inheritance|estate|fortune|fund|money)\s+(of|worth|valued)\s+\$?\d+\s*(million|billion|m|b)",
+    r"(deceased|late|departed)\s+(father|mother|uncle|relative|client|businessman)",
+    r"(bank|account|fund)\s+in\s+(africa|nigeria|ghana|overseas)",
+    r"(transfer|move|release)\s+(the\s+)?(fund|money|inheritance|estate)",
+    r"(processing|transfer|legal|documentation)\s+fee",
+    r"(stranded|stuck|trapped)\s+(fund|money|inheritance)",
+    r"(confidential|secret|private)\s+(business|transaction|deal|proposal)",
+    r"(god|blessing|divine)\s+(has\s+)?(directed|led|chosen)",
+    r"(widow|orphan)\s+of\s+(late|deceased)",
+    r"(oil|gold|diamond)\s+(contract|deal|business)",
+    r"100%\s+(safe|secure|risk.?free)",
+    r"(your\s+)?share.*(\d+|percent|%)",
 ]
 
 # Grandparent / family emergency scam patterns
 GRANDPARENT_SCAM_PATTERNS = [
-    r'(grandma|grandpa|grandmother|grandfather|nana|papa|granny)',
-    r'(grandson|granddaughter|grandchild)',
-    r'(bail|jail|arrested|accident|hospital|emergency)',
+    r"(grandma|grandpa|grandmother|grandfather|nana|papa|granny)",
+    r"(grandson|granddaughter|grandchild)",
+    r"(bail|jail|arrested|accident|hospital|emergency)",
     r"(don't|do\s*not)\s+(tell|inform)\s+(mom|dad|parents|anyone)",
-    r'(please\s+)?keep\s+(this\s+)?(secret|quiet|between\s+us)',
-    r'(in\s+)?(trouble|jail|arrested|custody)',
-    r'(car\s+)?accident.*(need|send|wire)',
-    r'(broken|hurt|injured).*(hospital|medical)',
-    r'lawyer\s+(said|told|needs)',
-    r'(must|need\s+to)\s+pay\s+(today|now|immediately|asap)',
-    r'(western\s+union|moneygram|wire|gift\s+card)',
+    r"(please\s+)?keep\s+(this\s+)?(secret|quiet|between\s+us)",
+    r"(in\s+)?(trouble|jail|arrested|custody)",
+    r"(car\s+)?accident.*(need|send|wire)",
+    r"(broken|hurt|injured).*(hospital|medical)",
+    r"lawyer\s+(said|told|needs)",
+    r"(must|need\s+to)\s+pay\s+(today|now|immediately|asap)",
+    r"(western\s+union|moneygram|wire|gift\s+card)",
 ]
 
 # Tech support scam patterns
 TECH_SUPPORT_SCAM_PATTERNS = [
-    r'(computer|pc|mac|device)\s+(is\s+)?(infected|hacked|compromised|at\s+risk)',
-    r'(virus|malware|trojan|ransomware)\s+(detected|found|alert)',
-    r'(microsoft|apple|google|windows|norton|mcafee)\s+(support|technician|security)',
-    r'(remote\s+)?(access|control)\s+(to\s+)?(your\s+)?(computer|device)',
-    r'(security\s+)?subscription\s+(expired|renew)',
-    r'(refund|overpayment|overcharge).*(remote|access)',
-    r'(call|contact)\s+(this\s+)?(number|support)',
-    r'(your\s+)?(ip|computer)\s+(has\s+)?(been\s+)?(flagged|blocked|reported)',
-    r'(unauthorized|suspicious)\s+(activity|login|access)',
+    r"(computer|pc|mac|device)\s+(is\s+)?(infected|hacked|compromised|at\s+risk)",
+    r"(virus|malware|trojan|ransomware)\s+(detected|found|alert)",
+    r"(microsoft|apple|google|windows|norton|mcafee)\s+(support|technician|security)",
+    r"(remote\s+)?(access|control)\s+(to\s+)?(your\s+)?(computer|device)",
+    r"(security\s+)?subscription\s+(expired|renew)",
+    r"(refund|overpayment|overcharge).*(remote|access)",
+    r"(call|contact)\s+(this\s+)?(number|support)",
+    r"(your\s+)?(ip|computer)\s+(has\s+)?(been\s+)?(flagged|blocked|reported)",
+    r"(unauthorized|suspicious)\s+(activity|login|access)",
 ]
 
 # Romance scam patterns
 ROMANCE_SCAM_PATTERNS = [
-    r'(met|found)\s+(online|dating|app|website)',
-    r'(send|wire|transfer)\s+(money|fund)',
+    r"(met|found)\s+(online|dating|app|website)",
+    r"(send|wire|transfer)\s+(money|fund)",
     r"(can't|cannot)\s+(meet|video\s+call|facetime)",
-    r'(military|deployed|overseas|oil\s+rig|ship|platform)',
-    r'(stuck|stranded)\s+(in|at)\s+(airport|overseas|abroad)',
-    r'(customs|duty|fee)\s+(to\s+)?(release|ship|send)',
-    r'(plane|flight)\s+ticket',
-    r'(medical|hospital|surgery)\s+(bill|emergency)',
-    r'(investment|business)\s+(opportunity|deal)',
-    r'(prove|show)\s+(your\s+)?(love|trust|commitment)',
-    r'(please\s+)?trust\s+me',
-    r'(our\s+)?(future|life)\s+together',
+    r"(military|deployed|overseas|oil\s+rig|ship|platform)",
+    r"(stuck|stranded)\s+(in|at)\s+(airport|overseas|abroad)",
+    r"(customs|duty|fee)\s+(to\s+)?(release|ship|send)",
+    r"(plane|flight)\s+ticket",
+    r"(medical|hospital|surgery)\s+(bill|emergency)",
+    r"(investment|business)\s+(opportunity|deal)",
+    r"(prove|show)\s+(your\s+)?(love|trust|commitment)",
+    r"(please\s+)?trust\s+me",
+    r"(our\s+)?(future|life)\s+together",
 ]
 
 # Market value expectations for common high-value items (minimum realistic price)
@@ -499,7 +507,6 @@ def check_scam_patterns(
 
     This is a DETERMINISTIC check - no LLM variance, 100% reliable.
     """
-    import re
 
     description_lower = payload.item_description.lower()
 
@@ -509,7 +516,7 @@ def check_scam_patterns(
             return CheckResult(
                 name="scam_pattern",
                 passed=False,
-                reason=f"Suspicious scam pattern detected in description",
+                reason="Suspicious scam pattern detected in description",
             )
 
     # Check for suspicious description patterns
@@ -544,7 +551,7 @@ def check_scam_patterns(
         return CheckResult(
             name="scam_pattern",
             passed=False,
-            reason=f"Family emergency scam pattern detected (grandparent scam)",
+            reason="Family emergency scam pattern detected (grandparent scam)",
         )
 
     # Check for tech support scam patterns
@@ -556,7 +563,7 @@ def check_scam_patterns(
         return CheckResult(
             name="scam_pattern",
             passed=False,
-            reason=f"Tech support scam pattern detected",
+            reason="Tech support scam pattern detected",
         )
 
     # Check for romance scam patterns
@@ -568,18 +575,29 @@ def check_scam_patterns(
         return CheckResult(
             name="scam_pattern",
             passed=False,
-            reason=f"Romance scam pattern detected",
+            reason="Romance scam pattern detected",
         )
 
     # Special check: Gift cards with external email recipients
     # Gift cards should be added to your own account, not sent to random emails
-    if payload.item_category and 'gift' in payload.item_category.lower():
+    if payload.item_category and "gift" in payload.item_category.lower():
         # Check if there's any email address in the description
-        email_match = re.search(r'\b[\w.-]+@[\w.-]+\.\w+\b', payload.item_description)
+        email_match = re.search(r"\b[\w.-]+@[\w.-]+\.\w+\b", payload.item_description)
         if email_match:
             email = email_match.group(0)
             # Flag any email that looks suspicious
-            suspicious_words = ['urgent', 'payment', 'required', 'support', 'help', 'claim', 'prize', 'winner', 'irs', 'tax']
+            suspicious_words = [
+                "urgent",
+                "payment",
+                "required",
+                "support",
+                "help",
+                "claim",
+                "prize",
+                "winner",
+                "irs",
+                "tax",
+            ]
             if any(word in email.lower() for word in suspicious_words):
                 return CheckResult(
                     name="scam_pattern",
@@ -610,7 +628,6 @@ def check_market_value(
     NOTE: Skips rental/reservation items - $300 yacht RENTAL is fine,
     $300 yacht PURCHASE is a scam. This nuance requires semantic understanding.
     """
-    import re
 
     description_lower = payload.item_description.lower()
     category_lower = (payload.item_category or "").lower()
@@ -619,11 +636,29 @@ def check_market_value(
     # Skip for rentals/reservations - pricing is completely different
     # $300/day yacht rental is normal, $300 yacht purchase is a scam
     rental_keywords = [
-        'rental', 'rent', 'reservation', 'reserve', 'booking', 'book',
-        'per day', 'per night', 'per hour', '/day', '/night', '/hour',
-        'for 1 day', 'for 2 day', 'for 3 day', 'for 4 day', 'for 5 day',
-        'for 1 night', 'for 2 night', 'for 3 night',
-        'charter', 'hire', 'lease',
+        "rental",
+        "rent",
+        "reservation",
+        "reserve",
+        "booking",
+        "book",
+        "per day",
+        "per night",
+        "per hour",
+        "/day",
+        "/night",
+        "/hour",
+        "for 1 day",
+        "for 2 day",
+        "for 3 day",
+        "for 4 day",
+        "for 5 day",
+        "for 1 night",
+        "for 2 night",
+        "for 3 night",
+        "charter",
+        "hire",
+        "lease",
     ]
 
     if any(kw in description_lower or kw in category_lower for kw in rental_keywords):
@@ -637,7 +672,7 @@ def check_market_value(
     # Use word boundaries to avoid false positives (e.g., "car" in "gift card")
     for item_name, min_price in MARKET_VALUE_MINIMUMS.items():
         # Create regex pattern with word boundaries
-        pattern = r'\b' + re.escape(item_name) + r'\b'
+        pattern = r"\b" + re.escape(item_name) + r"\b"
         if re.search(pattern, description_lower):
             if unit_price < min_price * 0.5:  # Allow 50% off (sales/used), but not 90% off
                 return CheckResult(
@@ -657,18 +692,61 @@ def check_market_value(
 # Key: what user might ask for, Value: list of NOT-equivalent assets
 CRYPTO_SUBSTITUTIONS = {
     # Bitcoin variants - NOT the same
-    "btc": ["wbtc", "wrapped bitcoin", "bitcoin cash", "bch", "bitcoin sv", "bsv", "rbtc", "renbtc", "tbtc", "hbtc", "sbtc"],
-    "bitcoin": ["wbtc", "wrapped bitcoin", "bitcoin cash", "bch", "bitcoin sv", "bsv", "rbtc", "renbtc", "tbtc", "hbtc", "sbtc", "bitcoin gold", "btg"],
-
+    "btc": [
+        "wbtc",
+        "wrapped bitcoin",
+        "bitcoin cash",
+        "bch",
+        "bitcoin sv",
+        "bsv",
+        "rbtc",
+        "renbtc",
+        "tbtc",
+        "hbtc",
+        "sbtc",
+    ],
+    "bitcoin": [
+        "wbtc",
+        "wrapped bitcoin",
+        "bitcoin cash",
+        "bch",
+        "bitcoin sv",
+        "bsv",
+        "rbtc",
+        "renbtc",
+        "tbtc",
+        "hbtc",
+        "sbtc",
+        "bitcoin gold",
+        "btg",
+    ],
     # Ethereum variants - NOT the same
-    "eth": ["weth", "steth", "reth", "cbeth", "eth2", "ethereum classic", "etc", "lido staked ether", "rocket pool eth"],
-    "ethereum": ["weth", "wrapped ether", "steth", "staked ether", "reth", "ethereum classic", "etc", "lido", "rocket pool"],
-
+    "eth": [
+        "weth",
+        "steth",
+        "reth",
+        "cbeth",
+        "eth2",
+        "ethereum classic",
+        "etc",
+        "lido staked ether",
+        "rocket pool eth",
+    ],
+    "ethereum": [
+        "weth",
+        "wrapped ether",
+        "steth",
+        "staked ether",
+        "reth",
+        "ethereum classic",
+        "etc",
+        "lido",
+        "rocket pool",
+    ],
     # Stablecoins - NOT equivalent despite being "stable"
     "usdc": ["usdt", "dai", "busd", "tusd", "usdp", "frax", "ust", "terrausd", "gusd", "lusd"],
     "usdt": ["usdc", "dai", "busd", "tusd", "usdp", "frax", "ust", "terrausd", "gusd", "lusd"],
     "dai": ["usdc", "usdt", "busd", "tusd", "usdp", "frax", "ust"],
-
     # Common high-value crypto
     "sol": ["wsol", "wrapped sol", "solana"],
     "solana": ["wsol", "wrapped sol"],
@@ -699,7 +777,20 @@ def check_crypto_substitution(
     if not any(cat in category_lower for cat in crypto_categories):
         # Also check if description mentions crypto
         desc_lower = (payload.item_description or "").lower()
-        if not any(crypto in desc_lower for crypto in ["btc", "bitcoin", "eth", "ethereum", "usdc", "usdt", "crypto", "token", "coin"]):
+        if not any(
+            crypto in desc_lower
+            for crypto in [
+                "btc",
+                "bitcoin",
+                "eth",
+                "ethereum",
+                "usdc",
+                "usdt",
+                "crypto",
+                "token",
+                "coin",
+            ]
+        ):
             return CheckResult(
                 name="crypto_substitution",
                 passed=True,
@@ -740,18 +831,37 @@ def check_crypto_substitution(
     # Final check: if description contains a wrapped/derivative asset, flag it
     # These are inherently suspicious unless explicitly requested
     WRAPPED_DERIVATIVES = [
-        "wbtc", "wrapped bitcoin", "rbtc", "renbtc", "tbtc", "hbtc",
-        "weth", "wrapped ether", "steth", "staked ether", "reth", "cbeth",
-        "wsol", "wrapped sol",
-        "wbnb", "wrapped bnb",
-        "wavax", "wrapped avax",
-        "wmatic", "wrapped matic",
+        "wbtc",
+        "wrapped bitcoin",
+        "rbtc",
+        "renbtc",
+        "tbtc",
+        "hbtc",
+        "weth",
+        "wrapped ether",
+        "steth",
+        "staked ether",
+        "reth",
+        "cbeth",
+        "wsol",
+        "wrapped sol",
+        "wbnb",
+        "wrapped bnb",
+        "wavax",
+        "wrapped avax",
+        "wmatic",
+        "wrapped matic",
     ]
 
     for derivative in WRAPPED_DERIVATIVES:
         if derivative in desc_lower:
             # Get the base asset
-            base = derivative.replace("wrapped ", "").replace("staked ", "").replace("w", "", 1).upper()
+            base = (
+                derivative.replace("wrapped ", "")
+                .replace("staked ", "")
+                .replace("w", "", 1)
+                .upper()
+            )
             if base in ["BTC", "ETH", "SOL", "BNB", "AVAX", "MATIC"]:
                 return CheckResult(
                     name="crypto_substitution",

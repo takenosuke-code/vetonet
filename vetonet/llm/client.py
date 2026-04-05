@@ -89,7 +89,7 @@ def _extract_single_json_object(text: str) -> dict | None:
             escape_next = False
             continue
 
-        if char == '\\' and in_string:
+        if char == "\\" and in_string:
             escape_next = True
             continue
 
@@ -100,13 +100,13 @@ def _extract_single_json_object(text: str) -> dict | None:
         if in_string:
             continue
 
-        if char == '{':
+        if char == "{":
             depth += 1
-        elif char == '}':
+        elif char == "}":
             depth -= 1
             if depth == 0:
                 # Found complete object
-                json_str = text[start_idx:i+1]
+                json_str = text[start_idx : i + 1]
                 try:
                     obj = json.loads(json_str)
                     # Validate it's a simple object (not nested deeply)
@@ -119,7 +119,7 @@ def _extract_single_json_object(text: str) -> dict | None:
     return None
 
 
-def create_client(config: LLMConfig = DEFAULT_LLM_CONFIG) -> LLMClient:
+def create_client(config: LLMConfig = DEFAULT_LLM_CONFIG) -> LLMClient | None:
     """
     Factory function to create the appropriate LLM client.
 
@@ -134,6 +134,7 @@ def create_client(config: LLMConfig = DEFAULT_LLM_CONFIG) -> LLMClient:
 
     elif config.provider == "groq":
         from vetonet.llm.groq import GroqClient
+
         if not config.api_key:
             raise ValueError("Groq provider requires api_key")
         return GroqClient(
@@ -144,6 +145,7 @@ def create_client(config: LLMConfig = DEFAULT_LLM_CONFIG) -> LLMClient:
 
     elif config.provider == "anthropic":
         from vetonet.llm.anthropic import AnthropicClient
+
         if not config.api_key:
             raise ValueError("Anthropic provider requires api_key")
         return AnthropicClient(
@@ -157,9 +159,7 @@ def create_client(config: LLMConfig = DEFAULT_LLM_CONFIG) -> LLMClient:
         try:
             from openai import OpenAI
         except ImportError:
-            raise ImportError(
-                "OpenAI SDK not installed. Install with: pip install vetonet[openai]"
-            )
+            raise ImportError("OpenAI SDK not installed. Install with: pip install vetonet[openai]")
         if not config.api_key:
             raise ValueError("OpenAI provider requires api_key")
 
@@ -194,8 +194,11 @@ def create_client(config: LLMConfig = DEFAULT_LLM_CONFIG) -> LLMClient:
             temperature=config.temperature,
         )
 
+    elif config.provider == "none":
+        return None
+
     else:
         raise ValueError(
             f"Unsupported provider: {config.provider}. "
-            f"Supported: ollama, groq, anthropic, openai"
+            f"Supported: ollama, groq, anthropic, openai, none"
         )

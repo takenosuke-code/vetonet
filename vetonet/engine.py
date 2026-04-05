@@ -20,7 +20,12 @@ from vetonet.checks import (
     check_market_value,
     check_semantic_match,
 )
-from vetonet.checks.classifier import check_classifier, is_classifier_available
+from vetonet.checks.classifier import check_classifier
+import logging
+
+logger = logging.getLogger(__name__)
+
+_UNSET = object()
 
 
 class VetoEngine:
@@ -49,10 +54,22 @@ class VetoEngine:
         self,
         veto_config: VetoConfig = DEFAULT_VETO_CONFIG,
         llm_config: LLMConfig = DEFAULT_LLM_CONFIG,
-        llm_client: LLMClient | None = None,
+        llm_client: LLMClient | None = _UNSET,
     ):
         self.veto_config = veto_config
-        self.llm_client = llm_client or create_client(llm_config)
+        if llm_client is _UNSET:
+            try:
+                self.llm_client = create_client(llm_config)
+            except Exception as e:
+                logger.error("Failed to create LLM client: %s", e)
+                if veto_config.semantic_mode == "always":
+                    logger.critical(
+                        "semantic_mode='always' but LLM client unavailable — "
+                        "semantic checks will be skipped"
+                    )
+                self.llm_client = None
+        else:
+            self.llm_client = llm_client
 
     def check(
         self,
@@ -99,6 +116,25 @@ class VetoEngine:
                     checks=checks,
                 )
 
+        # Combo attack detection: accumulate suspicion from borderline passes
+        accumulated_suspicion = sum(c.suspicion_weight for c in checks)
+        nonzero_signals = sum(1 for c in checks if c.suspicion_weight > 0)
+        if nonzero_signals >= 4:
+            accumulated_suspicion *= 1.5
+        elif nonzero_signals >= 3:
+            accumulated_suspicion *= 1.3
+
+        suspicion_force_semantic = False
+        if accumulated_suspicion >= self.veto_config.suspicion_threshold:
+            if self.veto_config.suspicion_shadow_mode:
+                logger.warning(
+                    "Suspicion score %.3f exceeds threshold %.3f (shadow mode)",
+                    accumulated_suspicion,
+                    self.veto_config.suspicion_threshold,
+                )
+            else:
+                suspicion_force_semantic = True
+
         # Run ML classifier check (fast, runs on CPU)
         # This is a pre-filter before the expensive LLM semantic check
         classifier_result = check_classifier(anchor, payload)
@@ -114,20 +150,23 @@ class VetoEngine:
                     checks=checks,
                 )
 
-            # Classifier confidently approved - skip LLM check
-            if classifier_result.score and classifier_result.score >= 0.85:
-                return VetoResult(
-                    status=VetoStatus.APPROVED,
-                    reason="ML classifier approved",
-                    checks=checks,
-                )
+        # Determine whether to run the semantic check
+        run_semantic = False
+        if self.veto_config.semantic_mode == "always":
+            run_semantic = self.llm_client is not None
+        elif self.veto_config.semantic_mode == "smart":
+            classifier_uncertain = classifier_result is None
+            high_value = payload.unit_price >= self.veto_config.semantic_skip_threshold
+            run_semantic = self.llm_client is not None and (
+                anchor.core_constraints or classifier_uncertain or high_value
+            )
+        # "never" -> run_semantic stays False
 
-        # Run semantic check for uncertain cases (slower, uses LLM)
-        # Always run if: classifier was uncertain OR transaction is high-value
-        classifier_uncertain = classifier_result is None
-        high_value = payload.unit_price >= 100  # $100+ transactions get extra scrutiny
+        # Suspicion scoring can force semantic check even in "smart"/"never" mode
+        if suspicion_force_semantic and self.llm_client is not None:
+            run_semantic = True
 
-        if self.llm_client and (anchor.core_constraints or classifier_uncertain or high_value):
+        if run_semantic:
             semantic_result = check_semantic_match(
                 anchor,
                 payload,

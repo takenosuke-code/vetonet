@@ -5,7 +5,6 @@ Handles API key generation, validation, and rate limiting.
 Keys are stored as SHA256 hashes - plaintext never persisted.
 """
 
-import os
 import secrets
 import hashlib
 import time
@@ -16,6 +15,7 @@ from functools import wraps
 from flask import request, jsonify
 
 from vetonet import db
+from vetonet.ratelimit import get_limiter
 
 
 # Key format: veto_sk_live_ or veto_sk_test_ + 48 random chars (like Stripe)
@@ -28,6 +28,7 @@ DEFAULT_RATE_LIMIT = 10000  # 10K requests/day for free tier
 @dataclass
 class APIKey:
     """Validated API key with metadata."""
+
     id: str
     user_id: Optional[str]
     key_prefix: str
@@ -42,15 +43,13 @@ class APIKey:
 @dataclass
 class RateLimitResult:
     """Rate limit check result."""
+
     allowed: bool
     remaining: int
     reset_at: datetime
     limit: int
 
 
-# In-memory rate limit cache (simple, works for single instance)
-# For production with multiple instances, use Redis
-_rate_limit_cache: dict[str, list[float]] = {}
 RATE_LIMIT_WINDOW = 86400  # 24 hours in seconds
 
 
@@ -155,7 +154,7 @@ def validate_api_key(key: str) -> Tuple[bool, Optional[APIKey], str]:
             if datetime.now(exp_dt.tzinfo) > exp_dt:
                 return False, None, "API key has expired"
         except (ValueError, TypeError):
-            pass  # Invalid date format, ignore expiration
+            return False, None, "API key expiration data invalid"
 
     # Update last_used_at (async, don't block on it)
     db.update_key_last_used(key_data["id"])
@@ -166,8 +165,12 @@ def validate_api_key(key: str) -> Tuple[bool, Optional[APIKey], str]:
         key_prefix=key_data.get("key_prefix", get_key_prefix(key)),
         name=key_data.get("name"),
         rate_limit=key_data.get("rate_limit", DEFAULT_RATE_LIMIT),
-        created_at=datetime.fromisoformat(key_data["created_at"].replace("Z", "+00:00")) if key_data.get("created_at") else datetime.now(),
-        last_used_at=datetime.fromisoformat(key_data["last_used_at"].replace("Z", "+00:00")) if key_data.get("last_used_at") else None,
+        created_at=datetime.fromisoformat(key_data["created_at"].replace("Z", "+00:00"))
+        if key_data.get("created_at")
+        else datetime.now(),
+        last_used_at=datetime.fromisoformat(key_data["last_used_at"].replace("Z", "+00:00"))
+        if key_data.get("last_used_at")
+        else None,
         is_active=key_data.get("is_active", True),
         environment=key_data.get("environment", environment),  # From DB or inferred from key
     )
@@ -179,8 +182,7 @@ def check_rate_limit(key_id: str, limit: int) -> RateLimitResult:
     """
     Check if request is within rate limit.
 
-    Uses sliding window algorithm with in-memory cache.
-    For production, replace with Redis.
+    Uses shared RateLimiter backend (in-memory with optional Redis).
 
     Args:
         key_id: The API key ID
@@ -189,37 +191,12 @@ def check_rate_limit(key_id: str, limit: int) -> RateLimitResult:
     Returns:
         RateLimitResult with allowed status and remaining quota
     """
-    now = time.time()
-    window_start = now - RATE_LIMIT_WINDOW
-
-    # Get or create request timestamps for this key
-    if key_id not in _rate_limit_cache:
-        _rate_limit_cache[key_id] = []
-
-    # Remove old timestamps outside window
-    _rate_limit_cache[key_id] = [
-        ts for ts in _rate_limit_cache[key_id] if ts > window_start
-    ]
-
-    current_count = len(_rate_limit_cache[key_id])
-    remaining = max(0, limit - current_count)
-    reset_at = datetime.fromtimestamp(now + RATE_LIMIT_WINDOW)
-
-    if current_count >= limit:
-        return RateLimitResult(
-            allowed=False,
-            remaining=0,
-            reset_at=reset_at,
-            limit=limit,
-        )
-
-    # Add this request timestamp
-    _rate_limit_cache[key_id].append(now)
+    result = get_limiter().check(f"apikey:{key_id}", limit, RATE_LIMIT_WINDOW)
 
     return RateLimitResult(
-        allowed=True,
-        remaining=remaining - 1,  # -1 for this request
-        reset_at=reset_at,
+        allowed=result.allowed,
+        remaining=result.remaining,
+        reset_at=datetime.fromtimestamp(result.reset_at),
         limit=limit,
     )
 
@@ -244,6 +221,7 @@ def require_api_key(f):
             # request.api_key contains the validated APIKey object
             ...
     """
+
     @wraps(f)
     def decorated(*args, **kwargs):
         start_time = time.time()
@@ -252,10 +230,12 @@ def require_api_key(f):
         auth_header = request.headers.get("Authorization", "")
 
         if not auth_header.startswith("Bearer "):
-            return jsonify({
-                "error": "Missing or invalid Authorization header",
-                "hint": "Use 'Authorization: Bearer veto_sk_xxx'"
-            }), 401
+            return jsonify(
+                {
+                    "error": "Missing or invalid Authorization header",
+                    "hint": "Use 'Authorization: Bearer veto_sk_xxx'",
+                }
+            ), 401
 
         api_key = auth_header[7:]  # Remove "Bearer " prefix
 
@@ -269,11 +249,13 @@ def require_api_key(f):
         rate_result = check_rate_limit(key_obj.id, key_obj.rate_limit)
 
         if not rate_result.allowed:
-            response = jsonify({
-                "error": "Rate limit exceeded",
-                "limit": rate_result.limit,
-                "reset_at": rate_result.reset_at.isoformat(),
-            })
+            response = jsonify(
+                {
+                    "error": "Rate limit exceeded",
+                    "limit": rate_result.limit,
+                    "reset_at": rate_result.reset_at.isoformat(),
+                }
+            )
             response.headers["X-RateLimit-Limit"] = str(rate_result.limit)
             response.headers["X-RateLimit-Remaining"] = "0"
             response.headers["X-RateLimit-Reset"] = str(int(rate_result.reset_at.timestamp()))
@@ -297,7 +279,7 @@ def require_api_key(f):
         else:
             resp_obj, status_code = response, 200
 
-        if hasattr(resp_obj, 'headers'):
+        if hasattr(resp_obj, "headers"):
             resp_obj.headers["X-RateLimit-Limit"] = str(rate_result.limit)
             resp_obj.headers["X-RateLimit-Remaining"] = str(rate_result.remaining)
             resp_obj.headers["X-RateLimit-Reset"] = str(int(rate_result.reset_at.timestamp()))
@@ -309,12 +291,13 @@ def require_api_key(f):
 
 # === Key Management Functions ===
 
+
 def create_api_key(
     user_id: str,
     name: str = None,
     rate_limit: int = DEFAULT_RATE_LIMIT,
     expires_days: int = None,
-    environment: str = "live"
+    environment: str = "live",
 ) -> Tuple[str, dict]:
     """
     Create a new API key for a user.

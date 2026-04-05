@@ -2,8 +2,10 @@
 VetoNet API Backend
 Connects React playground to the real VetoNet engine
 """
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import datetime
 from functools import wraps
 import hashlib
@@ -18,13 +20,22 @@ from vetonet.llm.client import create_client
 from vetonet.config import LLMConfig
 from vetonet import db as supabase_db
 from vetonet.checks.classifier import is_classifier_available, get_classifier_stats
-from vetonet.auth import require_api_key as require_user_api_key, create_api_key, list_user_keys, revoke_api_key
+from vetonet.auth import (
+    require_api_key as require_user_api_key,
+    create_api_key,
+    list_user_keys,
+    revoke_api_key,
+)
+from vetonet.ratelimit import get_limiter
 from demo.shopping_agent import ShoppingAgent, AgentMode
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
 # CORS origins from env or defaults
-CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://veto-net.org,https://vetonet-3jz7.vercel.app,http://localhost:5173").split(",")
+CORS_ORIGINS = os.environ.get(
+    "CORS_ORIGINS", "https://veto-net.org,https://vetonet-3jz7.vercel.app,http://localhost:5173"
+).split(",")
 CORS(app, origins=CORS_ORIGINS)
 
 # ============== LLM Configuration ==============
@@ -42,15 +53,16 @@ if GROQ_API_KEY:
     llm_client = create_client(llm_config)
     normalizer = IntentNormalizer(llm_client)
     engine = VetoEngine(llm_client=llm_client)
-    print(f"  LLM: Groq (llama-3.1-8b-instant)")
+    print("  LLM: Groq (llama-3.1-8b-instant)")
 else:
     # Try Ollama locally, or run without LLM
     try:
         from vetonet.config import DEFAULT_LLM_CONFIG
+
         llm_client = create_client(DEFAULT_LLM_CONFIG)
         normalizer = IntentNormalizer(llm_client)
         engine = VetoEngine(llm_client=llm_client)
-        print(f"  LLM: Ollama (local)")
+        print("  LLM: Ollama (local)")
     except Exception as e:
         print(f"  Warning: No LLM available ({e}). Semantic checks disabled.")
         llm_client = None
@@ -66,58 +78,43 @@ MAX_PROMPT_LENGTH = 1000
 MAX_DESCRIPTION_LENGTH = 500
 
 # ============== SECURITY: Rate Limiting for Public Endpoints ==============
-import time
-from collections import defaultdict
 
-# Simple in-memory rate limiter for public endpoints
-# For production with multiple instances, use Redis
-_public_rate_limits = defaultdict(list)
 PUBLIC_RATE_LIMIT = 30  # requests per minute per IP
 PUBLIC_RATE_WINDOW = 60  # seconds
 
+
 def get_client_ip():
-    """Get client IP, handling proxies."""
-    # Check X-Forwarded-For for reverse proxies (Railway, Vercel, etc.)
-    forwarded = request.headers.get('X-Forwarded-For', '')
-    if forwarded:
-        return forwarded.split(',')[0].strip()
-    return request.remote_addr or 'unknown'
+    """Get client IP (ProxyFix handles X-Forwarded-For)."""
+    return request.remote_addr or "unknown"
+
 
 def check_public_rate_limit():
     """Check if client is within rate limit. Returns (allowed, remaining, reset_time)."""
     ip = get_client_ip()
-    now = time.time()
-    window_start = now - PUBLIC_RATE_WINDOW
+    result = get_limiter().check(ip, PUBLIC_RATE_LIMIT, PUBLIC_RATE_WINDOW)
+    return result.allowed, result.remaining, result.reset_at
 
-    # Clean old entries
-    _public_rate_limits[ip] = [t for t in _public_rate_limits[ip] if t > window_start]
-
-    current_count = len(_public_rate_limits[ip])
-    remaining = max(0, PUBLIC_RATE_LIMIT - current_count)
-    reset_time = int(now + PUBLIC_RATE_WINDOW)
-
-    if current_count >= PUBLIC_RATE_LIMIT:
-        return False, 0, reset_time
-
-    _public_rate_limits[ip].append(now)
-    return True, remaining - 1, reset_time
 
 def rate_limit_response():
     """Return a rate limit exceeded response."""
     _, _, reset_time = check_public_rate_limit()
-    response = jsonify({
-        "error": "Rate limit exceeded",
-        "message": f"Max {PUBLIC_RATE_LIMIT} requests per minute. Try again later.",
-        "retry_after": PUBLIC_RATE_WINDOW
-    })
+    response = jsonify(
+        {
+            "error": "Rate limit exceeded",
+            "message": f"Max {PUBLIC_RATE_LIMIT} requests per minute. Try again later.",
+            "retry_after": PUBLIC_RATE_WINDOW,
+        }
+    )
     response.headers["Retry-After"] = str(PUBLIC_RATE_WINDOW)
     response.headers["X-RateLimit-Limit"] = str(PUBLIC_RATE_LIMIT)
     response.headers["X-RateLimit-Remaining"] = "0"
     response.headers["X-RateLimit-Reset"] = str(reset_time)
     return response, 429
 
+
 def require_rate_limit(f):
     """Decorator to apply rate limiting to public endpoints."""
+
     @wraps(f)
     def decorated(*args, **kwargs):
         allowed, remaining, reset_time = check_public_rate_limit()
@@ -132,12 +129,13 @@ def require_rate_limit(f):
         else:
             resp_obj = response
 
-        if hasattr(resp_obj, 'headers'):
+        if hasattr(resp_obj, "headers"):
             resp_obj.headers["X-RateLimit-Limit"] = str(PUBLIC_RATE_LIMIT)
             resp_obj.headers["X-RateLimit-Remaining"] = str(remaining)
             resp_obj.headers["X-RateLimit-Reset"] = str(reset_time)
 
         return response
+
     return decorated
 
 
@@ -179,6 +177,7 @@ def validate_payload(data: dict) -> tuple[bool, str]:
 
 def require_api_key(f):
     """Decorator to require API key for sensitive endpoints."""
+
     @wraps(f)
     def decorated(*args, **kwargs):
         api_key = os.environ.get("VETONET_ADMIN_KEY")
@@ -189,6 +188,7 @@ def require_api_key(f):
         if not provided_key or not hmac.compare_digest(provided_key, api_key):
             return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
+
     return decorated
 
 
@@ -216,6 +216,7 @@ def anonymize_data(data: dict) -> dict:
 
     return safe
 
+
 # ============== Database Setup ==============
 # Primary: Supabase (persistent, recommended)
 # Fallback: Railway Postgres or file
@@ -224,12 +225,15 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")  # For JWT verification
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+
 def get_db():
     """Get legacy database connection (for backwards compatibility)."""
     if not DATABASE_URL:
         return None
     import psycopg2
+
     return psycopg2.connect(DATABASE_URL)
+
 
 def init_db():
     """Initialize database connections."""
@@ -267,6 +271,7 @@ def init_db():
 
     print("  Database: File fallback (data/attack_attempts.jsonl)")
 
+
 # Initialize database on startup
 try:
     init_db()
@@ -276,6 +281,7 @@ except Exception as e:
 # Data collection - log all attempts
 ATTACK_LOG_FILE = "data/attack_attempts.jsonl"
 os.makedirs("data", exist_ok=True)
+
 
 def log_attempt(data) -> str | None:
     """
@@ -318,18 +324,21 @@ def log_attempt(data) -> str | None:
         try:
             conn = get_db()
             cur = conn.cursor()
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO attacks (type, prompt, attack_vector, bypassed, blocked_by, checks, payload)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
-                data.get("type"),
-                data.get("prompt"),
-                data.get("attack_vector"),
-                data.get("bypassed", data.get("approved", False)),
-                blocked_by,
-                json.dumps(data.get("checks", [])),
-                json.dumps(data.get("payload", {})),
-            ))
+            """,
+                (
+                    data.get("type"),
+                    data.get("prompt"),
+                    data.get("attack_vector"),
+                    data.get("bypassed", data.get("approved", False)),
+                    blocked_by,
+                    json.dumps(data.get("checks", [])),
+                    json.dumps(data.get("payload", {})),
+                ),
+            )
             conn.commit()
             conn.close()
             return None
@@ -341,6 +350,7 @@ def log_attempt(data) -> str | None:
         f.write(json.dumps(data) + "\n")
     return None
 
+
 def format_checks(result):
     """Format check results for API response"""
     return [
@@ -349,25 +359,29 @@ def format_checks(result):
             "name": c.name,
             "desc": "",
             "passed": c.passed,
-            "reason": c.reason
+            "reason": c.reason,
         }
         for c in result.checks
     ]
 
+
 @app.route("/api/health", methods=["GET"])
 def health():
     classifier_available = is_classifier_available()
-    return jsonify({
-        "status": "ok",
-        "engine": "vetonet",
-        "classifier": {
-            "available": classifier_available,
-            "stats": get_classifier_stats() if classifier_available else None
+    return jsonify(
+        {
+            "status": "ok",
+            "engine": "vetonet",
+            "classifier": {
+                "available": classifier_available,
+                "stats": get_classifier_stats() if classifier_available else None,
+            },
         }
-    })
+    )
 
 
 # ============== API Key Management ==============
+
 
 def get_user_from_jwt():
     """
@@ -402,17 +416,14 @@ def get_user_from_jwt():
                 token,
                 signing_key.key,
                 algorithms=["ES256", "RS256", "HS256"],
-                audience="authenticated"
+                audience="authenticated",
             )
             return payload.get("sub")
 
         # Method 2: Legacy HS256 fallback
         elif SUPABASE_JWT_SECRET:
             payload = jwt.decode(
-                token,
-                SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                audience="authenticated"
+                token, SUPABASE_JWT_SECRET, algorithms=["HS256"], audience="authenticated"
             )
             return payload.get("sub")
 
@@ -486,11 +497,13 @@ def create_key():
         if not key_record:
             return jsonify({"error": "Failed to create key"}), 500
 
-        return jsonify({
-            "key": full_key,  # Only shown ONCE
-            "warning": "Save this key now. It cannot be shown again.",
-            **key_record,
-        }), 201
+        return jsonify(
+            {
+                "key": full_key,  # Only shown ONCE
+                "warning": "Save this key now. It cannot be shown again.",
+                **key_record,
+            }
+        ), 201
 
     except Exception as e:
         app.logger.error(f"Create key error: {e}")
@@ -547,7 +560,10 @@ def delete_key(key_id):
 
     # Validate UUID format
     import re
-    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', key_id, re.I):
+
+    if not re.match(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", key_id, re.I
+    ):
         return jsonify({"error": "Invalid key ID format"}), 400
 
     success = revoke_api_key(key_id, user_id)
@@ -559,6 +575,7 @@ def delete_key(key_id):
 
 
 # ============== Production API (Requires API Key) ==============
+
 
 @app.route("/api/check", methods=["POST"])
 @require_user_api_key
@@ -616,16 +633,19 @@ def check_transaction():
         else:
             # Basic fallback without LLM
             from vetonet.models import IntentAnchor
+
             intent = IntentAnchor(
                 item_category=payload_data.get("item_category", "unknown"),
                 max_price=float(payload_data.get("unit_price", 100)),
                 currency=payload_data.get("currency", "USD"),
-                core_constraints=[]
+                core_constraints=[],
             )
 
         # Build payload
-        fees = [Fee(name=f.get("name", ""), amount=f.get("amount", 0))
-                for f in payload_data.get("fees", [])]
+        fees = [
+            Fee(name=f.get("name", ""), amount=f.get("amount", 0))
+            for f in payload_data.get("fees", [])
+        ]
 
         payload = AgentPayload(
             item_description=payload_data.get("item_description", ""),
@@ -654,28 +674,36 @@ def check_transaction():
 
         # Log for analytics (includes API key user info)
         # Store FULL intent and payload for ML training
-        attack_id = log_attempt(anonymize_data({
-            "timestamp": datetime.now().isoformat(),
-            "type": "api_check",
-            "source": "api",
-            "prompt": prompt[:500],
-            "payload": payload_data,
-            "intent": intent.model_dump(),  # Full IntentAnchor for ML training
-            "approved": approved,
-            "checks": format_checks(result),
-            "confidence": confidence,
-            "reasoning": result.reason,
-            "api_key_prefix": request.api_key.key_prefix if hasattr(request, 'api_key') else None,
-        }))
+        attack_id = log_attempt(
+            anonymize_data(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "type": "api_check",
+                    "source": "api",
+                    "prompt": prompt[:500],
+                    "payload": payload_data,
+                    "intent": intent.model_dump(),  # Full IntentAnchor for ML training
+                    "approved": approved,
+                    "checks": format_checks(result),
+                    "confidence": confidence,
+                    "reasoning": result.reason,
+                    "api_key_prefix": request.api_key.key_prefix
+                    if hasattr(request, "api_key")
+                    else None,
+                }
+            )
+        )
 
-        return jsonify({
-            "verdict": "approved" if approved else "blocked",
-            "status": result.status.value,
-            "reason": result.reason,
-            "confidence": confidence,
-            "checks": format_checks(result),
-            "request_id": attack_id,
-        })
+        return jsonify(
+            {
+                "verdict": "approved" if approved else "blocked",
+                "status": result.status.value,
+                "reason": result.reason,
+                "confidence": confidence,
+                "checks": format_checks(result),
+                "request_id": attack_id,
+            }
+        )
 
     except Exception as e:
         app.logger.error(f"Check error: {e}")
@@ -737,7 +765,7 @@ def classify():
                 item_category=payload_data.get("item_category", "unknown"),
                 max_price=float(payload_data.get("unit_price", 100)),
                 currency="USD",
-                core_constraints=[]
+                core_constraints=[],
             )
 
         # Build payload
@@ -749,7 +777,7 @@ def classify():
             vendor=payload_data.get("vendor", "unknown.com"),
             currency=payload_data.get("currency", "USD"),
             is_recurring=payload_data.get("is_recurring", False),
-            fees=[]
+            fees=[],
         )
 
         # Run classifier
@@ -757,20 +785,18 @@ def classify():
 
         if result is None:
             # Classifier returned uncertain
-            return jsonify({
-                "score": 0.5,
-                "label": "uncertain",
-                "confidence": 0.5
-            })
+            return jsonify({"score": 0.5, "label": "uncertain", "confidence": 0.5})
 
         # Log to telemetry (anonymized)
         _log_classifier_call(anchor, payload, result)
 
-        return jsonify({
-            "score": result.score,
-            "label": "attack" if not result.passed else "legitimate",
-            "confidence": abs(result.score - 0.5) * 2  # Convert to 0-1 confidence
-        })
+        return jsonify(
+            {
+                "score": result.score,
+                "label": "attack" if not result.passed else "legitimate",
+                "confidence": abs(result.score - 0.5) * 2,  # Convert to 0-1 confidence
+            }
+        )
 
     except Exception as e:
         app.logger.error(f"Classify error: {e}")
@@ -794,7 +820,7 @@ def _log_classifier_call(anchor, payload, result):
             "approved": result.passed,
             "checks_failed": [result.name] if not result.passed else [],
             "source": "hosted_classifier",
-            "classifier_score": result.score
+            "classifier_score": result.score,
         }
 
         client = supabase_db.get_client()
@@ -802,6 +828,7 @@ def _log_classifier_call(anchor, payload, result):
             client.table("telemetry").insert(data).execute()
     except Exception as e:
         app.logger.error(f"Telemetry log error: {e}")
+
 
 @app.route("/api/demo", methods=["POST"])
 @require_rate_limit
@@ -828,9 +855,7 @@ def run_demo():
         intent = normalizer.normalize(user_prompt)
 
         # Step 2: Agent shops (honest or compromised)
-        agent = ShoppingAgent(
-            mode=AgentMode.HONEST if mode == "honest" else AgentMode.COMPROMISED
-        )
+        agent = ShoppingAgent(mode=AgentMode.HONEST if mode == "honest" else AgentMode.COMPROMISED)
         shop_result = agent.shop(user_prompt)
 
         # Convert ShoppingResult to AgentPayload
@@ -868,21 +893,28 @@ def run_demo():
 
         # Log for analysis (anonymized) - returns attack_id for feedback
         # Store FULL intent and payload for ML training
-        attack_id = log_attempt(anonymize_data({
-            "timestamp": datetime.now().isoformat(),
-            "type": "demo",
-            "source": "playground",
-            "prompt": user_prompt[:500],
-            "mode": mode,
-            "intent": intent.model_dump(),  # Full IntentAnchor for ML training
-            "payload": payload.model_dump(),  # Full AgentPayload for ML training
-            "attack_vector": "standard" if mode == "default" else mode,
-            "approved": approved,
-            "bypassed": approved,  # For demo, approved = bypassed
-            "checks": [{"name": c.name, "passed": c.passed, "score": c.score} for c in result.checks],
-            "confidence": confidence,
-            "reasoning": reasoning,
-        }))
+        attack_id = log_attempt(
+            anonymize_data(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "type": "demo",
+                    "source": "playground",
+                    "prompt": user_prompt[:500],
+                    "mode": mode,
+                    "intent": intent.model_dump(),  # Full IntentAnchor for ML training
+                    "payload": payload.model_dump(),  # Full AgentPayload for ML training
+                    "attack_vector": "standard" if mode == "default" else mode,
+                    "approved": approved,
+                    "bypassed": approved,  # For demo, approved = bypassed
+                    "checks": [
+                        {"name": c.name, "passed": c.passed, "score": c.score}
+                        for c in result.checks
+                    ],
+                    "confidence": confidence,
+                    "reasoning": reasoning,
+                }
+            )
+        )
 
         response = {
             "intent": intent.model_dump(),
@@ -890,8 +922,8 @@ def run_demo():
             "result": {
                 "approved": approved,
                 "message": result.reason,
-                "checks": format_checks(result)
-            }
+                "checks": format_checks(result),
+            },
         }
 
         # Include attack_id for feedback (if using Supabase)
@@ -904,6 +936,7 @@ def run_demo():
         # SECURITY: Don't expose internal error details
         app.logger.error(f"Demo error: {e}")
         return jsonify({"error": "Processing failed"}), 500
+
 
 @app.route("/api/redteam", methods=["POST"])
 @require_rate_limit
@@ -942,7 +975,7 @@ def red_team():
             fees=fees,
             is_recurring=attack_payload.get("is_recurring", False),
             vendor=attack_payload.get("vendor", "unknown.com"),
-            currency=attack_payload.get("currency", "USD")
+            currency=attack_payload.get("currency", "USD"),
         )
 
         # Step 3: VetoNet scans
@@ -980,35 +1013,39 @@ def red_team():
                     break
 
         # Log ALL transactions for ML training (attacks AND bypasses are valuable)
-        attack_id = log_attempt(anonymize_data({
-            "timestamp": datetime.now().isoformat(),
-            "type": "redteam",
-            "source": "playground",
-            "prompt": user_prompt[:500],
-            "attack_vector": _classify_attack(attack_payload),
-            "bypassed": bypassed,
-            "approved": approved,
-            "blocked_by": blocked_by,  # Track which check caught it
-            "checks": [{"name": c.name, "passed": c.passed, "score": c.score} for c in result.checks],
-            "intent": intent.model_dump(),  # Full IntentAnchor for ML training
-            "payload": payload.model_dump(),  # Full AgentPayload for ML training
-            "confidence": confidence,
-            "reasoning": reasoning,
-        }))
+        attack_id = log_attempt(
+            anonymize_data(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "type": "redteam",
+                    "source": "playground",
+                    "prompt": user_prompt[:500],
+                    "attack_vector": _classify_attack(attack_payload),
+                    "bypassed": bypassed,
+                    "approved": approved,
+                    "blocked_by": blocked_by,  # Track which check caught it
+                    "checks": [
+                        {"name": c.name, "passed": c.passed, "score": c.score}
+                        for c in result.checks
+                    ],
+                    "intent": intent.model_dump(),  # Full IntentAnchor for ML training
+                    "payload": payload.model_dump(),  # Full AgentPayload for ML training
+                    "confidence": confidence,
+                    "reasoning": reasoning,
+                }
+            )
+        )
 
         response = {
             "intent": intent.model_dump(),
             "payload": payload.model_dump(),
             "bypassed": bypassed,
-            "classifier": {
-                "score": classifier_score,
-                "is_attack": is_likely_attack
-            },
+            "classifier": {"score": classifier_score, "is_attack": is_likely_attack},
             "result": {
                 "approved": approved,
                 "message": result.reason,
-                "checks": format_checks(result)
-            }
+                "checks": format_checks(result),
+            },
         }
 
         # Include attack_id for feedback (if using Supabase)
@@ -1049,9 +1086,9 @@ def submit_feedback():
         return jsonify({"error": "attack_id required"}), 400
 
     if feedback not in ("correct", "false_positive", "false_negative"):
-        return jsonify({
-            "error": "feedback must be 'correct', 'false_positive', or 'false_negative'"
-        }), 400
+        return jsonify(
+            {"error": "feedback must be 'correct', 'false_positive', or 'false_negative'"}
+        ), 400
 
     # Submit to Supabase
     if SUPABASE_URL:
@@ -1095,23 +1132,20 @@ def get_stats():
             bypassed = row[1] or 0
             blocked = row[2] or 0
 
-            return jsonify({
-                "total_attempts": total,
-                "blocked": blocked,
-                "bypassed": bypassed,
-                "bypass_rate": round(bypassed / max(total, 1) * 100, 2)
-            })
+            return jsonify(
+                {
+                    "total_attempts": total,
+                    "blocked": blocked,
+                    "bypassed": bypassed,
+                    "bypass_rate": round(bypassed / max(total, 1) * 100, 2),
+                }
+            )
         except Exception as e:
             print(f"DB stats error: {e}")
 
     # Fallback to file
     if not os.path.exists(ATTACK_LOG_FILE):
-        return jsonify({
-            "total_attempts": 0,
-            "blocked": 0,
-            "bypassed": 0,
-            "bypass_rate": 0
-        })
+        return jsonify({"total_attempts": 0, "blocked": 0, "bypassed": 0, "bypass_rate": 0})
 
     total = 0
     blocked = 0
@@ -1132,12 +1166,15 @@ def get_stats():
             except (json.JSONDecodeError, KeyError):
                 continue
 
-    return jsonify({
-        "total_attempts": total,
-        "blocked": blocked,
-        "bypassed": bypassed,
-        "bypass_rate": round(bypassed / max(total, 1) * 100, 2)
-    })
+    return jsonify(
+        {
+            "total_attempts": total,
+            "blocked": blocked,
+            "bypassed": bypassed,
+            "bypass_rate": round(bypassed / max(total, 1) * 100, 2),
+        }
+    )
+
 
 @app.route("/api/attacks", methods=["GET"])
 @require_api_key
@@ -1163,16 +1200,18 @@ def get_attacks():
 
             attacks = []
             for row in rows:
-                attacks.append({
-                    "timestamp": row[0].isoformat() if row[0] else None,
-                    "type": row[1],
-                    "prompt": row[2],
-                    "attack_vector": row[3],
-                    "bypassed": row[4],
-                    "blocked_by": row[5],
-                    "checks": row[6],
-                    "payload": row[7],
-                })
+                attacks.append(
+                    {
+                        "timestamp": row[0].isoformat() if row[0] else None,
+                        "type": row[1],
+                        "prompt": row[2],
+                        "attack_vector": row[3],
+                        "bypassed": row[4],
+                        "blocked_by": row[5],
+                        "checks": row[6],
+                        "payload": row[7],
+                    }
+                )
 
             return jsonify({"attacks": attacks})
         except Exception as e:
@@ -1208,11 +1247,20 @@ def export_csv():
     writer = csv.writer(output)
 
     # Header row (enhanced with feedback data)
-    writer.writerow([
-        "Timestamp", "Type", "Prompt", "Attack Vector",
-        "Verdict", "Blocked By", "Confidence", "Feedback",
-        "Unit Price", "Vendor"
-    ])
+    writer.writerow(
+        [
+            "Timestamp",
+            "Type",
+            "Prompt",
+            "Attack Vector",
+            "Verdict",
+            "Blocked By",
+            "Confidence",
+            "Feedback",
+            "Unit Price",
+            "Vendor",
+        ]
+    )
 
     # Try Supabase first
     if SUPABASE_URL:
@@ -1220,23 +1268,23 @@ def export_csv():
         if attacks:
             for a in attacks:
                 payload = a.get("payload") or {}
-                writer.writerow([
-                    a.get("created_at", ""),
-                    a.get("type", ""),
-                    a.get("prompt", ""),
-                    a.get("attack_vector", ""),
-                    a.get("verdict", ""),
-                    a.get("blocked_by", ""),
-                    a.get("confidence", ""),
-                    a.get("feedback", ""),
-                    payload.get("unit_price", ""),
-                    payload.get("vendor", ""),
-                ])
+                writer.writerow(
+                    [
+                        a.get("created_at", ""),
+                        a.get("type", ""),
+                        a.get("prompt", ""),
+                        a.get("attack_vector", ""),
+                        a.get("verdict", ""),
+                        a.get("blocked_by", ""),
+                        a.get("confidence", ""),
+                        a.get("feedback", ""),
+                        payload.get("unit_price", ""),
+                        payload.get("vendor", ""),
+                    ]
+                )
 
             response = app.response_class(
-                response=output.getvalue(),
-                status=200,
-                mimetype='text/csv'
+                response=output.getvalue(), status=200, mimetype="text/csv"
             )
             response.headers["Content-Disposition"] = "attachment; filename=vetonet_attacks.csv"
             return response
@@ -1256,16 +1304,18 @@ def export_csv():
 
             for row in rows:
                 payload = row[6] or {}
-                writer.writerow([
-                    row[0].isoformat() if row[0] else "",
-                    row[1] or "",
-                    row[2] or "",
-                    row[3] or "",
-                    "Yes" if row[4] else "No",
-                    row[5] or "",
-                    payload.get("unit_price", ""),
-                    payload.get("vendor", ""),
-                ])
+                writer.writerow(
+                    [
+                        row[0].isoformat() if row[0] else "",
+                        row[1] or "",
+                        row[2] or "",
+                        row[3] or "",
+                        "Yes" if row[4] else "No",
+                        row[5] or "",
+                        payload.get("unit_price", ""),
+                        payload.get("vendor", ""),
+                    ]
+                )
         except Exception as e:
             print(f"DB export error: {e}")
     else:
@@ -1276,24 +1326,22 @@ def export_csv():
                     try:
                         entry = json.loads(line)
                         payload = entry.get("payload", {})
-                        writer.writerow([
-                            entry.get("timestamp", ""),
-                            entry.get("type", ""),
-                            entry.get("prompt", ""),
-                            entry.get("attack_vector", ""),
-                            "Yes" if entry.get("bypassed") else "No",
-                            entry.get("blocked_by", ""),
-                            payload.get("unit_price", ""),
-                            payload.get("vendor", ""),
-                        ])
+                        writer.writerow(
+                            [
+                                entry.get("timestamp", ""),
+                                entry.get("type", ""),
+                                entry.get("prompt", ""),
+                                entry.get("attack_vector", ""),
+                                "Yes" if entry.get("bypassed") else "No",
+                                entry.get("blocked_by", ""),
+                                payload.get("unit_price", ""),
+                                payload.get("vendor", ""),
+                            ]
+                        )
                     except (json.JSONDecodeError, KeyError):
                         continue
 
-    response = app.response_class(
-        response=output.getvalue(),
-        status=200,
-        mimetype='text/csv'
-    )
+    response = app.response_class(response=output.getvalue(), status=200, mimetype="text/csv")
     response.headers["Content-Disposition"] = "attachment; filename=vetonet_attacks.csv"
     return response
 
@@ -1312,16 +1360,18 @@ def get_feed():
             formatted = []
             for a in attacks:
                 payload = a.get("payload") or {}
-                formatted.append({
-                    "id": a.get("id"),
-                    "timestamp": a.get("created_at"),
-                    "prompt": a.get("prompt"),
-                    "bypassed": a.get("verdict") == "approved",
-                    "blocked_by": a.get("blocked_by"),
-                    "attack_vector": a.get("attack_vector"),
-                    "vendor": payload.get("vendor"),
-                    "confidence": a.get("confidence"),
-                })
+                formatted.append(
+                    {
+                        "id": a.get("id"),
+                        "timestamp": a.get("created_at"),
+                        "prompt": a.get("prompt"),
+                        "bypassed": a.get("verdict") == "approved",
+                        "blocked_by": a.get("blocked_by"),
+                        "attack_vector": a.get("attack_vector"),
+                        "vendor": payload.get("vendor"),
+                        "confidence": a.get("confidence"),
+                    }
+                )
             return jsonify({"attacks": formatted})
 
     # Fallback to Postgres
@@ -1341,14 +1391,16 @@ def get_feed():
             attacks = []
             for row in rows:
                 payload = row[5] or {}
-                attacks.append({
-                    "timestamp": row[0].isoformat() if row[0] else None,
-                    "prompt": row[1],
-                    "bypassed": row[2],
-                    "blocked_by": row[3],
-                    "attack_vector": row[4],
-                    "vendor": payload.get("vendor"),
-                })
+                attacks.append(
+                    {
+                        "timestamp": row[0].isoformat() if row[0] else None,
+                        "prompt": row[1],
+                        "bypassed": row[2],
+                        "blocked_by": row[3],
+                        "attack_vector": row[4],
+                        "vendor": payload.get("vendor"),
+                    }
+                )
 
             return jsonify({"attacks": attacks})
         except Exception as e:
@@ -1373,14 +1425,16 @@ def get_feed():
                             blocked_by = check.get("name")
                             break
 
-                attacks.append({
-                    "timestamp": entry.get("timestamp"),
-                    "prompt": entry.get("prompt"),
-                    "bypassed": entry.get("bypassed", entry.get("approved", False)),
-                    "blocked_by": blocked_by,
-                    "attack_vector": entry.get("attack_vector"),
-                    "vendor": payload.get("vendor"),
-                })
+                attacks.append(
+                    {
+                        "timestamp": entry.get("timestamp"),
+                        "prompt": entry.get("prompt"),
+                        "bypassed": entry.get("bypassed", entry.get("approved", False)),
+                        "blocked_by": blocked_by,
+                        "attack_vector": entry.get("attack_vector"),
+                        "vendor": payload.get("vendor"),
+                    }
+                )
             except (json.JSONDecodeError, KeyError):
                 continue
 
@@ -1422,12 +1476,9 @@ def get_vectors():
 
             vectors = []
             for row in rows:
-                vectors.append({
-                    "vector": row[0],
-                    "total": row[1],
-                    "blocked": row[2],
-                    "bypassed": row[3]
-                })
+                vectors.append(
+                    {"vector": row[0], "total": row[1], "blocked": row[2], "bypassed": row[3]}
+                )
 
             return jsonify({"vectors": vectors})
         except Exception as e:
@@ -1497,15 +1548,17 @@ def receive_telemetry():
         try:
             client = supabase_db.get_client()
             if client:
-                client.table("telemetry").insert({
-                    "intent_hash": data.get("intent_hash", "")[:16],
-                    "category": data.get("category", "unknown")[:50],
-                    "price_bucket": data.get("price_bucket", "unknown"),
-                    "approved": bool(data.get("approved")),
-                    "checks_failed": data.get("checks_failed", [])[:10],
-                    "classifier_score": data.get("classifier_score"),
-                    "source": data.get("source")
-                }).execute()
+                client.table("telemetry").insert(
+                    {
+                        "intent_hash": data.get("intent_hash", "")[:16],
+                        "category": data.get("category", "unknown")[:50],
+                        "price_bucket": data.get("price_bucket", "unknown"),
+                        "approved": bool(data.get("approved")),
+                        "checks_failed": data.get("checks_failed", [])[:10],
+                        "classifier_score": data.get("classifier_score"),
+                        "source": data.get("source"),
+                    }
+                ).execute()
                 return jsonify({"status": "ok"})
         except Exception as e:
             app.logger.error(f"Telemetry insert error: {e}")
@@ -1535,6 +1588,7 @@ def _classify_attack(payload: dict) -> str:
         vectors.append("suspicious_tld")
 
     return ",".join(vectors) if vectors else "standard"
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
