@@ -26,13 +26,13 @@ export const DEPLOYMENT = {
   // vercel: configured in Vercel dashboard
 }
 
-// Stats fallback (real numbers from CLAUDE.md as of 2026-04)
+// Stats fallback (updated 2026-04-04 after NULL data cleanup)
 export const STATS_FALLBACK = {
-  total_attempts: 4178,
-  blocked: 4036,
-  bypassed: 142,
-  bypass_rate: 3.4,
-  detection_rate: 96.6,
+  total_attempts: 3820,
+  blocked: 3777,
+  bypassed: 43,
+  bypass_rate: 1.13,
+  detection_rate: 98.87,
 }
 
 // Brand icon SVG paths
