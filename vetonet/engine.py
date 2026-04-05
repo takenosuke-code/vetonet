@@ -18,6 +18,7 @@ from vetonet.checks import (
     check_currency_manipulation,
     check_scam_patterns,
     check_crypto_substitution,
+    check_market_value,
     check_semantic_match,
 )
 from vetonet.checks.classifier import check_classifier, is_classifier_available
@@ -40,8 +41,10 @@ class VetoEngine:
     7. Vendor check (deterministic)
     8. Price anomaly check (deterministic)
     9. Scam patterns check (deterministic)
-    10. ML Classifier (fast CPU-based pre-filter)
-    11. Semantic match (LLM-based, only for uncertain cases)
+    10. Market value check (deterministic) - catches unrealistically cheap items
+    11. Crypto substitution check (deterministic)
+    12. ML Classifier (fast CPU-based pre-filter)
+    13. Semantic match (LLM-based, only for uncertain cases)
     """
 
     def __init__(
@@ -84,6 +87,7 @@ class VetoEngine:
             lambda: check_vendor(payload, self.veto_config, anchor),
             lambda: check_price_anomaly(anchor, payload, self.veto_config),
             lambda: check_scam_patterns(payload),
+            lambda: check_market_value(payload),
             lambda: check_crypto_substitution(anchor, payload),
         ]
 

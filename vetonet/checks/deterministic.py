@@ -403,6 +403,113 @@ SCAM_DESCRIPTION_PATTERNS = [
     r'\+\d{1,3}[-\s]?\d{6,12}',  # International phone numbers
 ]
 
+# Nigerian prince / advance fee scam patterns
+ADVANCE_FEE_SCAM_PATTERNS = [
+    r'(prince|princess|king|royal|minister|diplomat)\s+(of\s+)?(nigeria|africa|ghana|congo|sudan)',
+    r'(inheritance|estate|fortune|fund|money)\s+(of|worth|valued)\s+\$?\d+\s*(million|billion|m|b)',
+    r'(deceased|late|departed)\s+(father|mother|uncle|relative|client|businessman)',
+    r'(bank|account|fund)\s+in\s+(africa|nigeria|ghana|overseas)',
+    r'(transfer|move|release)\s+(the\s+)?(fund|money|inheritance|estate)',
+    r'(processing|transfer|legal|documentation)\s+fee',
+    r'(stranded|stuck|trapped)\s+(fund|money|inheritance)',
+    r'(confidential|secret|private)\s+(business|transaction|deal|proposal)',
+    r'(god|blessing|divine)\s+(has\s+)?(directed|led|chosen)',
+    r'(widow|orphan)\s+of\s+(late|deceased)',
+    r'(oil|gold|diamond)\s+(contract|deal|business)',
+    r'100%\s+(safe|secure|risk.?free)',
+    r'(your\s+)?share.*(\d+|percent|%)',
+]
+
+# Grandparent / family emergency scam patterns
+GRANDPARENT_SCAM_PATTERNS = [
+    r'(grandma|grandpa|grandmother|grandfather|nana|papa|granny)',
+    r'(grandson|granddaughter|grandchild)',
+    r'(bail|jail|arrested|accident|hospital|emergency)',
+    r"(don't|do\s*not)\s+(tell|inform)\s+(mom|dad|parents|anyone)",
+    r'(please\s+)?keep\s+(this\s+)?(secret|quiet|between\s+us)',
+    r'(in\s+)?(trouble|jail|arrested|custody)',
+    r'(car\s+)?accident.*(need|send|wire)',
+    r'(broken|hurt|injured).*(hospital|medical)',
+    r'lawyer\s+(said|told|needs)',
+    r'(must|need\s+to)\s+pay\s+(today|now|immediately|asap)',
+    r'(western\s+union|moneygram|wire|gift\s+card)',
+]
+
+# Tech support scam patterns
+TECH_SUPPORT_SCAM_PATTERNS = [
+    r'(computer|pc|mac|device)\s+(is\s+)?(infected|hacked|compromised|at\s+risk)',
+    r'(virus|malware|trojan|ransomware)\s+(detected|found|alert)',
+    r'(microsoft|apple|google|windows|norton|mcafee)\s+(support|technician|security)',
+    r'(remote\s+)?(access|control)\s+(to\s+)?(your\s+)?(computer|device)',
+    r'(security\s+)?subscription\s+(expired|renew)',
+    r'(refund|overpayment|overcharge).*(remote|access)',
+    r'(call|contact)\s+(this\s+)?(number|support)',
+    r'(your\s+)?(ip|computer)\s+(has\s+)?(been\s+)?(flagged|blocked|reported)',
+    r'(unauthorized|suspicious)\s+(activity|login|access)',
+]
+
+# Romance scam patterns
+ROMANCE_SCAM_PATTERNS = [
+    r'(met|found)\s+(online|dating|app|website)',
+    r'(send|wire|transfer)\s+(money|fund)',
+    r"(can't|cannot)\s+(meet|video\s+call|facetime)",
+    r'(military|deployed|overseas|oil\s+rig|ship|platform)',
+    r'(stuck|stranded)\s+(in|at)\s+(airport|overseas|abroad)',
+    r'(customs|duty|fee)\s+(to\s+)?(release|ship|send)',
+    r'(plane|flight)\s+ticket',
+    r'(medical|hospital|surgery)\s+(bill|emergency)',
+    r'(investment|business)\s+(opportunity|deal)',
+    r'(prove|show)\s+(your\s+)?(love|trust|commitment)',
+    r'(please\s+)?trust\s+me',
+    r'(our\s+)?(future|life)\s+together',
+]
+
+# Market value expectations for common high-value items (minimum realistic price)
+# If an item sells for WAY below this, it's likely a scam
+MARKET_VALUE_MINIMUMS = {
+    # Electronics
+    "iphone": 400,
+    "ipad": 250,
+    "macbook": 600,
+    "airpods": 80,
+    "apple watch": 150,
+    "samsung galaxy": 300,
+    "ps5": 350,
+    "playstation 5": 350,
+    "playstation5": 350,
+    "xbox series": 300,
+    "nintendo switch": 200,
+    "rtx 4090": 1200,
+    "rtx 4080": 800,
+    "rtx 3090": 600,
+    "gpu": 150,
+    "graphics card": 150,
+    "laptop": 200,
+    "gaming pc": 500,
+    "gaming computer": 500,
+    # Luxury items
+    "rolex": 3000,
+    "omega": 1500,
+    "louis vuitton": 500,
+    "gucci": 300,
+    "hermes": 500,
+    "chanel": 500,
+    "prada": 300,
+    # Vehicles & big ticket
+    "yacht": 20000,
+    "private jet": 500000,
+    "jet": 500000,
+    "boat": 2000,
+    "car": 2000,
+    "tesla": 25000,
+    "motorcycle": 1500,
+    # Travel (per person)
+    "first class flight": 1000,
+    "business class": 500,
+    "private island": 50000,
+    "mansion": 100000,
+}
+
 
 def check_scam_patterns(
     payload: AgentPayload,
@@ -416,6 +523,8 @@ def check_scam_patterns(
     - IRS/government impersonation
     - Lottery/prize scams
     - Romance scams (emergency funds)
+    - Nigerian prince / advance fee scams
+    - Grandparent / family emergency scams
 
     This is a DETERMINISTIC check - no LLM variance, 100% reliable.
     """
@@ -443,6 +552,54 @@ def check_scam_patterns(
                 reason=f"Suspicious content detected: '{matched_text[:50]}'",
             )
 
+    # Check for Nigerian prince / advance fee scam patterns
+    for pattern in ADVANCE_FEE_SCAM_PATTERNS:
+        if re.search(pattern, description_lower, re.IGNORECASE):
+            match = re.search(pattern, description_lower, re.IGNORECASE)
+            matched_text = match.group(0) if match else "advance fee pattern"
+            return CheckResult(
+                name="scam_pattern",
+                passed=False,
+                reason=f"Advance fee scam pattern detected: '{matched_text[:50]}'",
+            )
+
+    # Check for grandparent / family emergency scam patterns
+    grandparent_matches = 0
+    for pattern in GRANDPARENT_SCAM_PATTERNS:
+        if re.search(pattern, description_lower, re.IGNORECASE):
+            grandparent_matches += 1
+    # Need at least 2 matches to flag (e.g., "grandma" + "bail" or "arrested" + "don't tell")
+    if grandparent_matches >= 2:
+        return CheckResult(
+            name="scam_pattern",
+            passed=False,
+            reason=f"Family emergency scam pattern detected (grandparent scam)",
+        )
+
+    # Check for tech support scam patterns
+    tech_support_matches = 0
+    for pattern in TECH_SUPPORT_SCAM_PATTERNS:
+        if re.search(pattern, description_lower, re.IGNORECASE):
+            tech_support_matches += 1
+    if tech_support_matches >= 2:
+        return CheckResult(
+            name="scam_pattern",
+            passed=False,
+            reason=f"Tech support scam pattern detected",
+        )
+
+    # Check for romance scam patterns
+    romance_matches = 0
+    for pattern in ROMANCE_SCAM_PATTERNS:
+        if re.search(pattern, description_lower, re.IGNORECASE):
+            romance_matches += 1
+    if romance_matches >= 2:
+        return CheckResult(
+            name="scam_pattern",
+            passed=False,
+            reason=f"Romance scam pattern detected",
+        )
+
     # Special check: Gift cards with external email recipients
     # Gift cards should be added to your own account, not sent to random emails
     if payload.item_category and 'gift' in payload.item_category.lower():
@@ -463,6 +620,40 @@ def check_scam_patterns(
         name="scam_pattern",
         passed=True,
         reason="No scam patterns detected",
+    )
+
+
+def check_market_value(
+    payload: AgentPayload,
+) -> CheckResult:
+    """
+    Detect suspiciously cheap items based on known market values.
+
+    Catches attacks like:
+    - $1 iPhone (market value: $400+)
+    - $20 PS5 (market value: $350+)
+    - $40 private yacht (market value: $20,000+)
+    - $499 Rolex (market value: $3,000+)
+
+    This is independent of user's max_price - it checks absolute market reality.
+    """
+    description_lower = payload.item_description.lower()
+    unit_price = payload.unit_price
+
+    # Check each known item against market minimums
+    for item_name, min_price in MARKET_VALUE_MINIMUMS.items():
+        if item_name in description_lower:
+            if unit_price < min_price * 0.5:  # Allow 50% off (sales/used), but not 90% off
+                return CheckResult(
+                    name="market_value",
+                    passed=False,
+                    reason=f"Price ${unit_price:.2f} unrealistic for '{item_name}' (market minimum ~${min_price})",
+                )
+
+    return CheckResult(
+        name="market_value",
+        passed=True,
+        reason="Price within realistic market range",
     )
 
 

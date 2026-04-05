@@ -85,18 +85,41 @@ export default function AuthPage() {
 
     try {
       if (authMode === 'signup') {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
         })
-        if (error) throw error
+        if (error) {
+          // Handle specific Supabase errors with clearer messages
+          if (error.message.includes('already registered') || error.message.includes('already exists')) {
+            throw new Error('An account with this email already exists. Try signing in instead.')
+          }
+          throw error
+        }
+        // Check if user was actually created (Supabase returns user even for existing emails sometimes)
+        if (data?.user?.identities?.length === 0) {
+          throw new Error('An account with this email already exists. Try signing in instead.')
+        }
         setMessage('Check your email for the confirmation link!')
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         })
-        if (error) throw error
+        if (error) {
+          if (error.message.includes('Invalid login')) {
+            throw new Error('Invalid email or password.')
+          }
+          if (error.message.includes('Email not confirmed')) {
+            throw new Error('Please verify your email before signing in. Check your inbox for the confirmation link.')
+          }
+          throw error
+        }
+        // Check if email is verified (if Supabase allows unverified logins)
+        if (data?.user && !data.user.email_confirmed_at) {
+          await supabase.auth.signOut()
+          throw new Error('Please verify your email before signing in. Check your inbox for the confirmation link.')
+        }
       }
     } catch (err) {
       setError(err.message)
