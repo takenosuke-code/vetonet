@@ -88,6 +88,9 @@ class VetoNet:
         )
 
         # Build veto config
+        # Auto-set semantic_mode="never" when no LLM provider, unless explicitly overridden
+        if provider == "none" and "semantic_mode" not in config_kwargs:
+            config_kwargs["semantic_mode"] = "never"
         self.veto_config = VetoConfig(**config_kwargs) if config_kwargs else VetoConfig()
 
         # Create LLM client (None for "none" provider)

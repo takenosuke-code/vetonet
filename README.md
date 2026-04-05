@@ -7,7 +7,7 @@ VetoNet prevents prompt injection attacks that manipulate AI agents into unautho
 [![Live Demo](https://img.shields.io/badge/demo-veto--net.org-00FFD1)](https://veto-net.org)
 [![API Status](https://img.shields.io/badge/API-live-00FF88)](https://veto-net.org/auth)
 
-**Stats:** 4,200+ attacks tested | 96.6% blocked | 99.58% ML accuracy
+**Stats:** 3,700+ attacks tested | 98.7% blocked | 24 real bypasses found & documented
 
 ---
 
@@ -83,6 +83,40 @@ else:
     print(f"Blocked: {result.reason}")
 ```
 
+### Option 4: Local Only (No API Keys)
+
+Test VetoNet's deterministic checks without any LLM or API key:
+
+```python
+from vetonet import VetoNet, IntentAnchor
+
+veto = VetoNet(provider="none")
+
+result = veto.check(
+    intent=IntentAnchor(item_category="gift_card", max_price=50.0),
+    payload=AgentPayload(
+        item_description="Amazon Gift Card $50",
+        item_category="gift_card",
+        unit_price=50.0,
+        vendor="amazon.com",
+    )
+)
+print(result.status)  # APPROVED
+```
+
+### IntentAnchor Fields
+
+When using `provider="none"`, you must construct the intent manually:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `item_category` | string | Yes | Category of item (gift_card, electronics, shoes, etc.) |
+| `max_price` | float | Yes | Maximum budget |
+| `currency` | string | No | Currency code (default: USD) |
+| `quantity` | int | No | Number of items (default: 1) |
+| `is_recurring` | bool | No | Subscription flag (default: false) |
+| `core_constraints` | list | No | Key constraints as "key:value" pairs (e.g., "brand:Nike") |
+
 ---
 
 ## The Problem
@@ -105,7 +139,7 @@ AI agents are vulnerable to prompt injection attacks. A user says "buy me a $50 
 ├─────────────────────────────────────────────────────────────────┤
 │  LAYER 2: ML Classifier (~5ms)                                  │
 │  Sentence Transformer + RandomForest                            │
-│  Trained on 1,500+ real attacks | 99.58% F1 score              │
+│  Trained on 4,400+ examples | Pre-filters before LLM           │
 ├─────────────────────────────────────────────────────────────────┤
 │  LAYER 3: LLM Semantic Check (~200ms)                           │
 │  "Does this transaction match the user's intent?"               │
@@ -382,7 +416,7 @@ python -c "from vetonet import VetoNet; print(VetoNet().verify('test', {}))"
 | `groq` | API key | Free tier |
 | `ollama` | Local install | Free |
 | `anthropic` | API key | Paid |
-| `none` | None | Deterministic only |
+| `none` | None | Deterministic only (auto-sets `semantic_mode="never"`) |
 
 ---
 
