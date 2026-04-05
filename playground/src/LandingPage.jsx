@@ -185,7 +185,7 @@ function DefenseTree() {
                 <span className="text-xs text-coral font-mono">AGENT RETURNS PAYLOAD</span>
               </div>
               <div className="text-white text-sm mb-2">
-                "Found a great deal! Japan Airlines via Kayak"
+                "Found a great deal! Japan Airlines via <span className="text-coral">cheapflights-deals.xyz</span>"
               </div>
               <div className="text-xs space-y-1 text-smoke">
                 <div>route: SFO → NRT <span className="text-coral">(departs Dec 18, not 17)</span></div>
