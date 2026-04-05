@@ -5,9 +5,8 @@ Groq provides free tier access to fast LLM inference.
 Get your API key at: https://console.groq.com/
 """
 
-import json
-import re
 from vetonet.llm.client import LLMClient
+from vetonet.llm.json_utils import extract_json_from_llm_response
 
 
 class GroqClient(LLMClient):
@@ -34,9 +33,7 @@ class GroqClient(LLMClient):
         try:
             from groq import Groq
         except ImportError:
-            raise ImportError(
-                "Groq SDK not installed. Install with: pip install vetonet[groq]"
-            )
+            raise ImportError("Groq SDK not installed. Install with: pip install vetonet[groq]")
 
         self.client = Groq(api_key=api_key)
         self.model = model
@@ -49,9 +46,9 @@ class GroqClient(LLMClient):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a precise assistant that extracts structured data. Always respond with valid JSON when asked."
+                    "content": "You are a precise assistant that extracts structured data. Always respond with valid JSON when asked.",
                 },
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
             temperature=self.temperature,
             max_tokens=1024,
@@ -61,12 +58,4 @@ class GroqClient(LLMClient):
     def query_json(self, prompt: str) -> dict:
         """Send a prompt and get parsed JSON response."""
         response = self.query(prompt)
-
-        # Try to extract JSON from markdown code blocks
-        json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", response)
-        if json_match:
-            response = json_match.group(1)
-
-        # Clean up and parse
-        response = response.strip()
-        return json.loads(response)
+        return extract_json_from_llm_response(response)

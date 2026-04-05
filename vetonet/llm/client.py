@@ -4,12 +4,12 @@ LLM Client abstraction for VetoNet.
 Supports multiple backends (Ollama, Anthropic) with a unified interface.
 """
 
-import json
 import requests
 from abc import ABC, abstractmethod
 from typing import Any
 
 from vetonet.config import LLMConfig, DEFAULT_LLM_CONFIG
+from vetonet.llm.json_utils import extract_json_from_llm_response
 
 
 class LLMClient(ABC):
@@ -56,67 +56,8 @@ class OllamaClient(LLMClient):
 
     def query_json(self, prompt: str) -> dict[str, Any]:
         """Send a prompt and parse response as JSON with secure parsing."""
-        response_text = self.query(prompt).strip()
-
-        # Handle markdown code blocks
-        if response_text.startswith("```"):
-            lines = response_text.split("\n")
-            response_text = "\n".join(lines[1:-1])
-
-        # SECURITY: Use balanced brace extraction to prevent JSON injection
-        json_obj = _extract_single_json_object(response_text)
-        if json_obj is None:
-            raise ValueError(f"No valid JSON found in response: {response_text[:100]}...")
-
-        return json_obj
-
-
-def _extract_single_json_object(text: str) -> dict | None:
-    """
-    Securely extract a single JSON object from text.
-    Uses balanced brace counting to prevent injection attacks.
-    """
-    start_idx = text.find("{")
-    if start_idx == -1:
-        return None
-
-    depth = 0
-    in_string = False
-    escape_next = False
-
-    for i, char in enumerate(text[start_idx:], start_idx):
-        if escape_next:
-            escape_next = False
-            continue
-
-        if char == "\\" and in_string:
-            escape_next = True
-            continue
-
-        if char == '"' and not escape_next:
-            in_string = not in_string
-            continue
-
-        if in_string:
-            continue
-
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                # Found complete object
-                json_str = text[start_idx : i + 1]
-                try:
-                    obj = json.loads(json_str)
-                    # Validate it's a simple object (not nested deeply)
-                    if isinstance(obj, dict):
-                        return obj
-                except json.JSONDecodeError:
-                    return None
-                return None
-
-    return None
+        response_text = self.query(prompt)
+        return extract_json_from_llm_response(response_text)
 
 
 def create_client(config: LLMConfig = DEFAULT_LLM_CONFIG) -> LLMClient | None:
@@ -180,13 +121,7 @@ def create_client(config: LLMConfig = DEFAULT_LLM_CONFIG) -> LLMClient | None:
 
             def query_json(self, prompt: str) -> dict:
                 response = self.query(prompt)
-                # Extract JSON
-                if response.strip().startswith("```"):
-                    lines = response.strip().split("\n")
-                    response = "\n".join(lines[1:-1])
-                start = response.find("{")
-                end = response.rfind("}") + 1
-                return json.loads(response[start:end])
+                return extract_json_from_llm_response(response)
 
         return OpenAIClient(
             api_key=config.api_key,

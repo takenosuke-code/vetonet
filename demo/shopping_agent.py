@@ -4,7 +4,6 @@ Simulated Shopping Agent for VetoNet Demo.
 This agent "shops" for items and can be "attacked" via prompt injection.
 """
 
-import json
 import requests
 from dataclasses import dataclass
 from enum import Enum
@@ -27,6 +26,7 @@ class AgentMode(Enum):
 @dataclass
 class ShoppingResult:
     """Result from the shopping agent."""
+
     item_description: str
     item_category: str
     unit_price: float  # Changed from 'price' to match AgentPayload
@@ -143,39 +143,33 @@ class ShoppingAgent:
 
         response = query_llm(prompt)
 
-        # Parse JSON from response
-        response = response.strip()
-        if response.startswith("```"):
-            lines = response.split("\n")
-            response = "\n".join(lines[1:-1])
+        # Parse JSON from response using secure extraction
+        from vetonet.llm.json_utils import extract_json_from_llm_response
 
-        start_idx = response.find("{")
-        end_idx = response.rfind("}") + 1
+        try:
+            data = extract_json_from_llm_response(response)
+        except ValueError:
+            raise ValueError(f"Failed to parse shopping result: {response[:200]}")
 
-        if start_idx != -1 and end_idx > start_idx:
-            json_str = response[start_idx:end_idx]
-            data = json.loads(json_str)
+        # Normalize category to lowercase with underscores
+        raw_category = data.get("item_category", "unknown")
+        normalized_category = raw_category.lower().replace(" ", "_").replace("-", "_")
 
-            # Normalize category to lowercase with underscores
-            raw_category = data.get("item_category", "unknown")
-            normalized_category = raw_category.lower().replace(" ", "_").replace("-", "_")
-
-            return ShoppingResult(
-                item_description=data.get("item_description", "Unknown Item"),
-                item_category=normalized_category,
-                unit_price=float(data.get("price", 0)),
-                quantity=int(data.get("quantity", 1)),
-                vendor=data.get("vendor", "unknown"),
-                fees=data.get("fees", []),
-            )
-
-        raise ValueError(f"Failed to parse shopping result: {response[:200]}")
+        return ShoppingResult(
+            item_description=data.get("item_description", "Unknown Item"),
+            item_category=normalized_category,
+            unit_price=float(data["price"]) if data.get("price") is not None else 0.0,
+            quantity=int(data["quantity"]) if data.get("quantity") is not None else 1,
+            vendor=data.get("vendor", "unknown"),
+            fees=data.get("fees", []),
+        )
 
     def _mock_shop(self, user_request: str) -> ShoppingResult:
         """Return mock shopping data for production demos."""
         # Extract price from request (e.g., "$50" -> 50)
         import re
-        price_match = re.search(r'\$?(\d+(?:\.\d{2})?)', user_request)
+
+        price_match = re.search(r"\$?(\d+(?:\.\d{2})?)", user_request)
         price = float(price_match.group(1)) if price_match else 50.0
 
         # Detect category from request

@@ -5,9 +5,8 @@ Uses Claude for intent extraction and semantic matching.
 Get your API key at: https://console.anthropic.com/
 """
 
-import json
-import re
 from vetonet.llm.client import LLMClient
+from vetonet.llm.json_utils import extract_json_from_llm_response
 
 
 class AnthropicClient(LLMClient):
@@ -53,12 +52,4 @@ class AnthropicClient(LLMClient):
     def query_json(self, prompt: str) -> dict:
         """Send a prompt and get parsed JSON response."""
         response = self.query(prompt)
-
-        # Try to extract JSON from markdown code blocks
-        json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", response)
-        if json_match:
-            response = json_match.group(1)
-
-        # Clean up and parse
-        response = response.strip()
-        return json.loads(response)
+        return extract_json_from_llm_response(response)

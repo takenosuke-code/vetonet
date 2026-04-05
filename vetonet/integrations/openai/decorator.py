@@ -8,13 +8,15 @@ Preserves __signature__ so @function_tool schema extraction works correctly.
 import functools
 import inspect
 import logging
-import os
+from vetonet.integrations.fail_open import should_allow_fail_open
 from typing import Any, Callable, Dict, Optional, TypeVar
 
 from vetonet.integrations.langchain.exceptions import (
     VetoBlockedException,
     IntentNotSetError,
     CircuitOpenError,
+    MappingError,
+    SignatureError,
     VetoNetError,
 )
 from vetonet.integrations.langchain.registry import (
@@ -29,9 +31,7 @@ T = TypeVar("T")
 # Thread/async-safe locked intent using ContextVar (not a plain global)
 from contextvars import ContextVar
 
-_locked_intent: ContextVar[Optional[str]] = ContextVar(
-    "vetonet_openai_intent", default=None
-)
+_locked_intent: ContextVar[Optional[str]] = ContextVar("vetonet_openai_intent", default=None)
 
 
 def set_locked_intent(intent: str) -> None:
@@ -127,9 +127,7 @@ def vetonet_function_tool(
 
             @functools.wraps(fn)
             async def async_wrapper(*args, **kwargs) -> Any:
-                return await _verify_and_execute_async(
-                    fn, args, kwargs, tool_name, config
-                )
+                return await _verify_and_execute_async(fn, args, kwargs, tool_name, config)
 
             async_wrapper.__signature__ = inspect.signature(fn)
             wrapper = async_wrapper
@@ -137,9 +135,7 @@ def vetonet_function_tool(
 
             @functools.wraps(fn)
             def sync_wrapper(*args, **kwargs) -> Any:
-                return _verify_and_execute_sync(
-                    fn, args, kwargs, tool_name, config
-                )
+                return _verify_and_execute_sync(fn, args, kwargs, tool_name, config)
 
             sync_wrapper.__signature__ = inspect.signature(fn)
             wrapper = sync_wrapper
@@ -170,7 +166,7 @@ def _verify_and_execute_sync(
         guard = get_default_guard()
 
         # Get intent from module-level or LangChain intent system
-        intent = _locked_intent
+        intent = _locked_intent.get()
         if intent is None:
             from vetonet.integrations.langchain.intent import get_current_intent
 
@@ -201,32 +197,14 @@ def _verify_and_execute_sync(
     except (VetoBlockedException, IntentNotSetError):
         raise
     except CircuitOpenError:
-        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
-            logger.critical(
-                "[SECURITY] Verification bypassed (circuit open) for %s — VETONET_ALLOW_FAIL_OPEN is set",
-                tool_name,
-            )
+        if should_allow_fail_open(config.fail_open, tool_name, "circuit_open", logger):
             return fn(*args, **kwargs)
-        if config.fail_open:
-            logger.warning(
-                "Circuit open for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing",
-                tool_name,
-            )
         raise VetoBlockedException(reason="VetoNet unavailable (circuit open)")
-    except VetoNetError as e:
-        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
-            logger.critical(
-                "[SECURITY] Verification bypassed (VetoNet error) for %s — VETONET_ALLOW_FAIL_OPEN is set: %s",
-                tool_name,
-                e,
-            )
+    except (MappingError, SignatureError):
+        raise
+    except VetoNetError:
+        if should_allow_fail_open(config.fail_open, tool_name, "vetonet_error", logger):
             return fn(*args, **kwargs)
-        if config.fail_open:
-            logger.warning(
-                "VetoNet error for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing: %s",
-                tool_name,
-                e,
-            )
         raise
 
 
@@ -244,7 +222,7 @@ async def _verify_and_execute_async(
         guard = get_default_guard()
 
         # Get intent from module-level or LangChain intent system
-        intent = _locked_intent
+        intent = _locked_intent.get()
         if intent is None:
             from vetonet.integrations.langchain.intent import get_current_intent
 
@@ -275,32 +253,14 @@ async def _verify_and_execute_async(
     except (VetoBlockedException, IntentNotSetError):
         raise
     except CircuitOpenError:
-        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
-            logger.critical(
-                "[SECURITY] Verification bypassed (circuit open) for %s — VETONET_ALLOW_FAIL_OPEN is set",
-                tool_name,
-            )
+        if should_allow_fail_open(config.fail_open, tool_name, "circuit_open", logger):
             return await fn(*args, **kwargs)
-        if config.fail_open:
-            logger.warning(
-                "Circuit open for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing",
-                tool_name,
-            )
         raise VetoBlockedException(reason="VetoNet unavailable (circuit open)")
-    except VetoNetError as e:
-        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
-            logger.critical(
-                "[SECURITY] Verification bypassed (VetoNet error) for %s — VETONET_ALLOW_FAIL_OPEN is set: %s",
-                tool_name,
-                e,
-            )
+    except (MappingError, SignatureError):
+        raise
+    except VetoNetError:
+        if should_allow_fail_open(config.fail_open, tool_name, "vetonet_error", logger):
             return await fn(*args, **kwargs)
-        if config.fail_open:
-            logger.warning(
-                "VetoNet error for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing: %s",
-                tool_name,
-                e,
-            )
         raise
 
 

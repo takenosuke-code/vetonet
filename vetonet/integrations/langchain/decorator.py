@@ -8,8 +8,9 @@ Eliminates decorator order confusion by handling both in one.
 import functools
 import inspect
 import logging
-import os
 from typing import Any, Callable, Dict, Optional, TypeVar, Union
+
+from vetonet.integrations.fail_open import should_allow_fail_open
 
 from .async_utils import is_async_callable
 from .exceptions import (
@@ -17,6 +18,8 @@ from .exceptions import (
     VetoBlockedToolException,
     IntentNotSetError,
     CircuitOpenError,
+    MappingError,
+    SignatureError,
     VetoNetError,
     LANGCHAIN_AVAILABLE,
 )
@@ -214,36 +217,18 @@ async def _execute_with_verification(
     except IntentNotSetError:
         raise
     except CircuitOpenError:
-        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
-            logger.critical(
-                "[SECURITY] Verification bypassed (circuit open) for %s — VETONET_ALLOW_FAIL_OPEN is set",
-                tool_name,
-            )
+        if should_allow_fail_open(config.fail_open, tool_name, "circuit_open", logger):
             return await fn(*args, **kwargs)
-        if config.fail_open:
-            logger.warning(
-                "Circuit open for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing",
-                tool_name,
-            )
         raise (
             VetoBlockedToolException(reason="VetoNet unavailable (circuit open)")
             if LANGCHAIN_AVAILABLE
             else VetoBlockedException(reason="VetoNet unavailable (circuit open)")
         )
-    except VetoNetError as e:
-        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
-            logger.critical(
-                "[SECURITY] Verification bypassed (VetoNet error) for %s — VETONET_ALLOW_FAIL_OPEN is set: %s",
-                tool_name,
-                e,
-            )
+    except (MappingError, SignatureError):
+        raise
+    except VetoNetError:
+        if should_allow_fail_open(config.fail_open, tool_name, "vetonet_error", logger):
             return await fn(*args, **kwargs)
-        if config.fail_open:
-            logger.warning(
-                "VetoNet error for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing: %s",
-                tool_name,
-                e,
-            )
         raise
 
 
@@ -306,36 +291,18 @@ def _execute_with_verification_sync(
     except IntentNotSetError:
         raise
     except CircuitOpenError:
-        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
-            logger.critical(
-                "[SECURITY] Verification bypassed (circuit open) for %s — VETONET_ALLOW_FAIL_OPEN is set",
-                tool_name,
-            )
+        if should_allow_fail_open(config.fail_open, tool_name, "circuit_open", logger):
             return fn(*args, **kwargs)
-        if config.fail_open:
-            logger.warning(
-                "Circuit open for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing",
-                tool_name,
-            )
         raise (
             VetoBlockedToolException(reason="VetoNet unavailable (circuit open)")
             if LANGCHAIN_AVAILABLE
             else VetoBlockedException(reason="VetoNet unavailable (circuit open)")
         )
-    except VetoNetError as e:
-        if config.fail_open and os.environ.get("VETONET_ALLOW_FAIL_OPEN") == "1":
-            logger.critical(
-                "[SECURITY] Verification bypassed (VetoNet error) for %s — VETONET_ALLOW_FAIL_OPEN is set: %s",
-                tool_name,
-                e,
-            )
+    except (MappingError, SignatureError):
+        raise
+    except VetoNetError:
+        if should_allow_fail_open(config.fail_open, tool_name, "vetonet_error", logger):
             return fn(*args, **kwargs)
-        if config.fail_open:
-            logger.warning(
-                "VetoNet error for %s and fail_open=True, but VETONET_ALLOW_FAIL_OPEN is not set — refusing: %s",
-                tool_name,
-                e,
-            )
         raise
 
 

@@ -101,7 +101,7 @@ from .client import APIClient
 from .circuit import CircuitBreaker
 from .async_utils import is_async_callable, is_async_context
 
-__version__ = "1.0.0"
+__version__ = "0.1.4"
 
 __all__ = [
     # Version
