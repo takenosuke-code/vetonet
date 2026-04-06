@@ -168,7 +168,14 @@ class VetoEngine:
             run_semantic = self.llm_client is not None and (
                 anchor.core_constraints or classifier_uncertain or high_value
             )
-        # "never" -> run_semantic stays False
+        elif self.veto_config.semantic_mode == "never":
+            pass  # run_semantic stays False
+        else:
+            logger.critical(
+                "Unknown semantic_mode %r — defaulting to run_semantic=True (fail-closed)",
+                self.veto_config.semantic_mode,
+            )
+            run_semantic = True
 
         # Suspicion scoring can force semantic check even in "smart"/"never" mode
         if suspicion_force_semantic and self.llm_client is not None:

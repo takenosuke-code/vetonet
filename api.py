@@ -142,7 +142,7 @@ def require_rate_limit(f):
 def validate_payload(data: dict) -> tuple[bool, str]:
     """Validate incoming payload data with security limits."""
     # Check prompt length
-    prompt = data.get("prompt", "")
+    prompt = data.get("prompt") if "prompt" in data else data.get("intent", "")
     if len(prompt) > MAX_PROMPT_LENGTH:
         return False, f"Prompt too long (max {MAX_PROMPT_LENGTH} chars)"
 
@@ -452,7 +452,6 @@ def create_key():
     Body (optional): {
         "name": "My App Key",
         "environment": "live",  # "live" or "test"
-        "rate_limit": 10000,
         "expires_days": 365
     }
 
@@ -462,7 +461,6 @@ def create_key():
         "name": "My App Key",
         "key_prefix": "veto_sk_live_",
         "environment": "live",
-        "rate_limit": 10000,
         "created_at": "2024-01-01T00:00:00Z",
         "warning": "Save this key now. It cannot be shown again."
     }
@@ -474,22 +472,16 @@ def create_key():
     data = request.json or {}
     name = data.get("name")
     environment = data.get("environment", "live")
-    rate_limit = data.get("rate_limit", 10000)
     expires_days = data.get("expires_days")
 
     # Validate environment
     if environment not in ("live", "test"):
         return jsonify({"error": "environment must be 'live' or 'test'"}), 400
 
-    # Validate rate_limit
-    if not isinstance(rate_limit, int) or rate_limit < 1 or rate_limit > 100000:
-        return jsonify({"error": "rate_limit must be 1-100000"}), 400
-
     try:
         full_key, key_record = create_api_key(
             user_id=user_id,
             name=name,
-            rate_limit=rate_limit,
             expires_days=expires_days,
             environment=environment,
         )
@@ -618,7 +610,7 @@ def check_transaction():
     if not valid:
         return jsonify({"error": error}), 400
 
-    prompt = data.get("prompt", "")
+    prompt = data.get("prompt") if "prompt" in data else data.get("intent", "")
     payload_data = data.get("payload", {})
 
     if not prompt:
@@ -745,7 +737,7 @@ def classify():
     if not valid:
         return jsonify({"error": error}), 400
 
-    prompt = data.get("prompt", "")
+    prompt = data.get("prompt") if "prompt" in data else data.get("intent", "")
     payload_data = data.get("payload", {})
 
     if not prompt:
@@ -843,7 +835,7 @@ def run_demo():
     if not valid:
         return jsonify({"error": error}), 400
 
-    user_prompt = data.get("prompt", "$50 Amazon Gift Card")
+    user_prompt = data.get("prompt") if "prompt" in data else data.get("intent", "$50 Amazon Gift Card")
     mode = data.get("mode", "honest")  # "honest" or "compromised"
 
     # Check if LLM is available
@@ -952,7 +944,7 @@ def red_team():
     if not valid:
         return jsonify({"error": error}), 400
 
-    user_prompt = data.get("prompt", "$50 Amazon Gift Card")
+    user_prompt = data.get("prompt") if "prompt" in data else data.get("intent", "$50 Amazon Gift Card")
     attack_payload = data.get("payload", {})
 
     # Check if LLM is available
@@ -1103,6 +1095,7 @@ def submit_feedback():
 
 
 @app.route("/api/stats", methods=["GET"])
+@require_rate_limit
 def get_stats():
     """
     Get attack statistics for dashboard
@@ -1347,6 +1340,7 @@ def export_csv():
 
 
 @app.route("/api/feed", methods=["GET"])
+@require_rate_limit
 def get_feed():
     """
     Get last 20 attacks for live feed.
@@ -1364,7 +1358,6 @@ def get_feed():
                     {
                         "id": a.get("id"),
                         "timestamp": a.get("created_at"),
-                        "prompt": a.get("prompt"),
                         "bypassed": a.get("verdict") == "approved",
                         "blocked_by": a.get("blocked_by"),
                         "attack_vector": a.get("attack_vector"),
@@ -1394,7 +1387,6 @@ def get_feed():
                 attacks.append(
                     {
                         "timestamp": row[0].isoformat() if row[0] else None,
-                        "prompt": row[1],
                         "bypassed": row[2],
                         "blocked_by": row[3],
                         "attack_vector": row[4],
@@ -1428,7 +1420,6 @@ def get_feed():
                 attacks.append(
                     {
                         "timestamp": entry.get("timestamp"),
-                        "prompt": entry.get("prompt"),
                         "bypassed": entry.get("bypassed", entry.get("approved", False)),
                         "blocked_by": blocked_by,
                         "attack_vector": entry.get("attack_vector"),
@@ -1443,6 +1434,7 @@ def get_feed():
 
 
 @app.route("/api/vectors", methods=["GET"])
+@require_rate_limit
 def get_vectors():
     """
     Get attack vector statistics for leaderboard.

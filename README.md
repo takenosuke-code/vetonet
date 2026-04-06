@@ -451,4 +451,6 @@ Current bypass rate: **3.4%** - Help us find vulnerabilities and improve the sys
 - **AGPL-3.0** — Free for open-source projects
 - **Commercial License** — Contact for closed-source usage
 
+**API Usage Safe Harbor:** Using VetoNet's hosted API does not trigger AGPL-3.0 obligations. You are calling a service, not distributing VetoNet code. The AGPL applies only if you modify and self-host VetoNet source code as a network service.
+
 See [LICENSE](LICENSE) for details.

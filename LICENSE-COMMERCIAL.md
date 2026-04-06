@@ -1,5 +1,7 @@
 # VetoNet Commercial License
 
+**API Usage Safe Harbor:** Using VetoNet's hosted API does not trigger AGPL-3.0 obligations. You are calling a service, not distributing VetoNet code. The AGPL applies only if you modify and self-host VetoNet source code as a network service.
+
 ## Overview
 
 VetoNet is dual-licensed:

@@ -5,7 +5,9 @@ A visual, interactive demo of VetoNet's semantic firewall.
 
 Run: streamlit run app.py
 """
-#neil good shit 
+
+# neil good shit
+import html
 import streamlit as st
 import time
 import sys
@@ -15,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from vetonet import VetoEngine, IntentNormalizer
-from vetonet.models import AgentPayload, Fee, VetoStatus
+from vetonet.models import AgentPayload, Fee
 from vetonet.llm.client import create_client
 from vetonet.config import DEFAULT_LLM_CONFIG
 from demo.shopping_agent import ShoppingAgent, AgentMode
@@ -28,14 +30,15 @@ st.set_page_config(
     page_title="VetoNet - Semantic Firewall",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # ============================================================================
 # Custom CSS
 # ============================================================================
 
-st.markdown("""
+st.markdown(
+    """
 <style>
     .main-header {
         font-size: 3rem;
@@ -103,13 +106,15 @@ st.markdown("""
         text-align: center;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ============================================================================
 # Initialize Session State
 # ============================================================================
 
-if 'llm_client' not in st.session_state:
+if "llm_client" not in st.session_state:
     try:
         st.session_state.llm_client = create_client(DEFAULT_LLM_CONFIG)
         st.session_state.normalizer = IntentNormalizer(st.session_state.llm_client)
@@ -124,10 +129,12 @@ if 'llm_client' not in st.session_state:
 # ============================================================================
 
 st.markdown('<h1 class="main-header">🛡️ VetoNet</h1>', unsafe_allow_html=True)
-st.markdown('<p class="sub-header">Semantic Firewall for AI Agent Transactions</p>', unsafe_allow_html=True)
+st.markdown(
+    '<p class="sub-header">Semantic Firewall for AI Agent Transactions</p>', unsafe_allow_html=True
+)
 
 # Check Ollama connection
-if not st.session_state.get('ollama_connected', False):
+if not st.session_state.get("ollama_connected", False):
     st.error("⚠️ Cannot connect to Ollama. Make sure it's running: `ollama serve`")
     st.stop()
 
@@ -142,7 +149,7 @@ with st.sidebar:
         "Agent Mode",
         ["🛡️ Honest Agent", "💀 Compromised Agent (Attack)"],
         index=1,
-        help="Simulate an honest agent or one that's been prompt-injected"
+        help="Simulate an honest agent or one that's been prompt-injected",
     )
 
     st.markdown("---")
@@ -190,7 +197,7 @@ with col1:
         "Enter your request",
         value="Buy me a $50 Amazon Gift Card",
         label_visibility="collapsed",
-        placeholder="e.g., Buy me Nike Air Force 1s under $150"
+        placeholder="e.g., Buy me Nike Air Force 1s under $150",
     )
 
 with col2:
@@ -203,7 +210,7 @@ examples = [
     "Buy me a $50 Amazon Gift Card",
     "Get me Nike Air Force 1s size 9 under $150",
     "Book a flight to NYC under $300",
-    "Subscribe to Netflix for $15/month"
+    "Subscribe to Netflix for $15/month",
 ]
 
 for i, example in enumerate(examples):
@@ -219,7 +226,6 @@ st.markdown("---")
 # ============================================================================
 
 if run_button and user_prompt:
-
     # Determine mode
     is_attack = "Compromised" in attack_mode
 
@@ -240,16 +246,19 @@ if run_button and user_prompt:
                 st.error(f"Failed to normalize: {e}")
                 st.stop()
 
-        st.markdown(f"""
+        st.markdown(
+            f"""
         <div class="intent-card">
             <strong>📋 User Intent</strong><br><br>
-            <b>Category:</b> {anchor.item_category}<br>
-            <b>Max Price:</b> ${anchor.max_price:.2f} {anchor.currency}<br>
+            <b>Category:</b> {html.escape(anchor.item_category)}<br>
+            <b>Max Price:</b> ${anchor.max_price:.2f} {html.escape(anchor.currency)}<br>
             <b>Quantity:</b> {anchor.quantity}<br>
             <b>Recurring:</b> {"Yes" if anchor.is_recurring else "No"}<br>
-            <b>Constraints:</b> {', '.join(anchor.core_constraints) if anchor.core_constraints else 'None'}
+            <b>Constraints:</b> {html.escape(", ".join(anchor.core_constraints)) if anchor.core_constraints else "None"}
         </div>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
         st.success("✅ Intent locked and secured")
 
@@ -276,27 +285,32 @@ if run_button and user_prompt:
                 st.stop()
 
         # Calculate totals
-        total_fees = sum(f['amount'] for f in shopping_result.fees) if shopping_result.fees else 0
+        total_fees = sum(f["amount"] for f in shopping_result.fees) if shopping_result.fees else 0
         total = shopping_result.price + total_fees
 
         card_class = "agent-card-danger" if is_attack else "agent-card"
 
         fees_html = ""
         if shopping_result.fees:
-            fees_list = [f"{f['name']}: ${f['amount']:.2f}" for f in shopping_result.fees]
+            fees_list = [
+                f"{html.escape(f['name'])}: ${f['amount']:.2f}" for f in shopping_result.fees
+            ]
             fees_html = f"<b>Fees:</b> {', '.join(fees_list)}<br>"
 
-        st.markdown(f"""
+        st.markdown(
+            f"""
         <div class="{card_class}">
             <strong>{"🚨 Compromised Result" if is_attack else "🛒 Agent Found"}</strong><br><br>
-            <b>Item:</b> {shopping_result.item_description}<br>
+            <b>Item:</b> {html.escape(shopping_result.item_description)}<br>
             <b>Price:</b> ${shopping_result.price:.2f}<br>
             {fees_html}
             <b>Total:</b> ${total:.2f}<br>
-            <b>Vendor:</b> {shopping_result.vendor}<br>
+            <b>Vendor:</b> {html.escape(shopping_result.vendor)}<br>
             {"<br><b>⚠️ RECURRING CHARGE</b>" if shopping_result.is_recurring else ""}
         </div>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
         if is_attack:
             st.error("🚨 Agent was manipulated!")
@@ -310,7 +324,11 @@ if run_button and user_prompt:
         st.markdown("### 3️⃣ VetoNet Decision")
 
         # Convert to payload
-        fees = [Fee(name=f["name"], amount=f["amount"]) for f in shopping_result.fees] if shopping_result.fees else []
+        fees = (
+            [Fee(name=f["name"], amount=f["amount"]) for f in shopping_result.fees]
+            if shopping_result.fees
+            else []
+        )
 
         payload = AgentPayload(
             item_description=shopping_result.item_description,
@@ -331,28 +349,40 @@ if run_button and user_prompt:
         st.markdown("**Security Checks:**")
         for check in result.checks:
             if check.passed:
-                st.markdown(f'<span class="check-pass">✓ {check.name}</span>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<span class="check-pass">✓ {html.escape(check.name)}</span>',
+                    unsafe_allow_html=True,
+                )
             else:
-                st.markdown(f'<span class="check-fail">✗ {check.name}: {check.reason}</span>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<span class="check-fail">✗ {html.escape(check.name)}: {html.escape(check.reason)}</span>',
+                    unsafe_allow_html=True,
+                )
 
         st.markdown("<br>", unsafe_allow_html=True)
 
         # Final decision
         if result.approved:
-            st.markdown("""
+            st.markdown(
+                """
             <div class="status-approved">
                 <h2>✅ APPROVED</h2>
                 <p>Transaction matches user intent</p>
             </div>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
             st.balloons()
         else:
-            st.markdown(f"""
+            st.markdown(
+                f"""
             <div class="status-veto">
                 <h2>🛑 BLOCKED</h2>
-                <p><strong>Reason:</strong> {result.reason}</p>
+                <p><strong>Reason:</strong> {html.escape(result.reason)}</p>
             </div>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
             st.snow()
 
     # =========================================================================
@@ -377,7 +407,10 @@ if run_button and user_prompt:
         with col2:
             st.metric("🏪 Vendor", payload.vendor)
         with col3:
-            st.metric("✅ Checks Passed", f"{len([c for c in result.checks if c.passed])}/{len(result.checks)}")
+            st.metric(
+                "✅ Checks Passed",
+                f"{len([c for c in result.checks if c.passed])}/{len(result.checks)}",
+            )
 
         st.success("**Transaction approved. Payment would proceed to PayPal.**")
 
@@ -386,9 +419,12 @@ if run_button and user_prompt:
 # ============================================================================
 
 st.markdown("---")
-st.markdown("""
+st.markdown(
+    """
 <div style="text-align: center; color: #666;">
     <p><strong>VetoNet</strong> - Securing the Future of Agent Commerce</p>
     <p>100% Local AI | No Cloud | No Data Leaks</p>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)

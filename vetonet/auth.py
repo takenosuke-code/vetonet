@@ -12,7 +12,6 @@ from typing import Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import request, jsonify
 
 from vetonet import db
 from vetonet.ratelimit import get_limiter
@@ -224,6 +223,8 @@ def require_api_key(f):
 
     @wraps(f)
     def decorated(*args, **kwargs):
+        from flask import request, jsonify  # Lazy import - Flask only needed at runtime
+
         start_time = time.time()
 
         # Extract key from Authorization header

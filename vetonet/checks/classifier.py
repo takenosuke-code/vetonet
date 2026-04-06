@@ -263,7 +263,7 @@ def get_classifier_stats() -> dict:
         model_path = _get_model_path()
         metadata_path = model_path.parent / "attack_classifier_metadata.json"
 
-        stats = {"loaded": True, "model_path": str(model_path), "embedder": "all-MiniLM-L6-v2"}
+        stats = {"loaded": True, "model_loaded": True, "embedder": "all-MiniLM-L6-v2"}
 
         if metadata_path.exists():
             with open(metadata_path) as f:

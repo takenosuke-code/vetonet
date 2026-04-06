@@ -4,27 +4,33 @@ VetoNet LangChain Integration - Shared Types
 Pydantic models for type safety and serialization.
 """
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
+_DEFAULT_API_URL = "https://web-production-fec907.up.railway.app"
+
 
 # =============================================================================
 # Enums
 # =============================================================================
 
+
 class VetoStatus(str, Enum):
     """Verification result status."""
+
     APPROVED = "APPROVED"
     VETO = "VETO"
 
 
 class CircuitState(str, Enum):
     """Circuit breaker states."""
-    CLOSED = "closed"      # Normal operation
-    OPEN = "open"          # Rejecting all requests
+
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Rejecting all requests
     HALF_OPEN = "half_open"  # Testing recovery
 
 
@@ -32,8 +38,10 @@ class CircuitState(str, Enum):
 # API Response Models
 # =============================================================================
 
+
 class CheckResultModel(BaseModel):
     """Result of a single verification check."""
+
     id: str
     name: str
     passed: bool
@@ -47,6 +55,7 @@ class CheckResultModel(BaseModel):
 
 class VetoResponse(BaseModel):
     """Response from VetoNet API /api/check endpoint."""
+
     verdict: Literal["approved", "blocked"]
     status: VetoStatus
     reason: str = ""
@@ -70,8 +79,10 @@ class VetoResponse(BaseModel):
 # Intent Models
 # =============================================================================
 
+
 class ConversationMessage(BaseModel):
     """A single message in the conversation history."""
+
     role: Literal["user", "assistant", "system"]
     content: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
@@ -86,6 +97,7 @@ class IntentContext(BaseModel):
 
     Contains the captured intent and conversation history.
     """
+
     raw_message: str  # Original user message identified as purchase intent
     conversation_history: List[ConversationMessage] = Field(default_factory=list)
     turn_index: int = 0  # Which turn triggered this
@@ -106,6 +118,7 @@ class IntentContext(BaseModel):
 # Tool Signature Models
 # =============================================================================
 
+
 class ToolSignature(BaseModel):
     """Configuration for mapping tool parameters to AgentPayload fields.
 
@@ -115,6 +128,7 @@ class ToolSignature(BaseModel):
             defaults={"item_category": "gift_card", "currency": "USD"}
         )
     """
+
     # Map: tool_param_name -> agentpayload_field_name
     field_map: Dict[str, str] = Field(default_factory=dict)
 
@@ -137,9 +151,11 @@ class ToolSignature(BaseModel):
 # Circuit Breaker State
 # =============================================================================
 
+
 @dataclass
 class CircuitBreakerState:
     """Immutable snapshot of circuit breaker state."""
+
     state: CircuitState
     failure_count: int
     last_failure_time: Optional[float]
@@ -163,10 +179,12 @@ class CircuitBreakerState:
 # Configuration Models
 # =============================================================================
 
+
 class VetoNetClientConfig(BaseModel):
     """Configuration for VetoNet API client."""
+
     api_key: str
-    base_url: str = "https://vetonet-production.up.railway.app"
+    base_url: str = os.environ.get("VETONET_API_URL", _DEFAULT_API_URL)
     timeout: float = 5.0
     max_retries: int = 3
     retry_backoff_base: float = 0.5
@@ -182,6 +200,7 @@ class VetoNetClientConfig(BaseModel):
 
 class CircuitBreakerConfig(BaseModel):
     """Configuration for circuit breaker."""
+
     failure_threshold: int = 5  # Failures before opening
     recovery_timeout: float = 30.0  # Seconds before half-open
     half_open_max_calls: int = 1  # Test calls in half-open
@@ -193,9 +212,10 @@ class CircuitBreakerConfig(BaseModel):
 
 class VetoNetGuardConfig(BaseModel):
     """Configuration for VetoNetGuard orchestrator."""
+
     # API settings
     api_key: Optional[str] = None  # Falls back to VETONET_API_KEY env var
-    api_base: str = "https://vetonet-production.up.railway.app"
+    api_base: str = os.environ.get("VETONET_API_URL", _DEFAULT_API_URL)
     timeout: float = 5.0
 
     # Circuit breaker
@@ -216,8 +236,10 @@ class VetoNetGuardConfig(BaseModel):
 # Logging Event Models
 # =============================================================================
 
+
 class VetoNetLogEvent(BaseModel):
     """Structured log event for observability."""
+
     event: str  # e.g., "request.start", "request.success", "circuit.open"
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     request_id: Optional[str] = None
@@ -252,26 +274,20 @@ __all__ = [
     # Enums
     "VetoStatus",
     "CircuitState",
-
     # API models
     "CheckResultModel",
     "VetoResponse",
-
     # Intent models
     "ConversationMessage",
     "IntentContext",
-
     # Tool signature
     "ToolSignature",
-
     # Circuit breaker
     "CircuitBreakerState",
-
     # Config models
     "VetoNetClientConfig",
     "CircuitBreakerConfig",
     "VetoNetGuardConfig",
-
     # Logging
     "VetoNetLogEvent",
 ]

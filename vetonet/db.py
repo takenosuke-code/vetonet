@@ -5,11 +5,13 @@ Handles all database operations with Supabase.
 Falls back gracefully if Supabase is not configured.
 """
 
+import logging
 import os
-import json
 from datetime import datetime
 from typing import Optional
 from supabase import create_client, Client
+
+logger = logging.getLogger(__name__)
 
 
 _client: Optional[Client] = None
@@ -32,7 +34,7 @@ def get_client() -> Optional[Client]:
         _client = create_client(url, key)
         return _client
     except Exception as e:
-        print(f"Supabase connection failed: {e}")
+        logger.error("Supabase connection failed: %s", e)
         return None
 
 
@@ -87,7 +89,7 @@ def log_attack(
         return None
 
     except Exception as e:
-        print(f"Supabase log_attack error: {e}")
+        logger.error("Supabase log_attack error: %s", e)
         return None
 
 
@@ -106,19 +108,26 @@ def submit_feedback(attack_id: str, feedback: str) -> bool:
     if not client:
         return False
 
-    if feedback not in ('correct', 'false_positive', 'false_negative'):
+    if feedback not in ("correct", "false_positive", "false_negative"):
         return False
 
     try:
-        result = client.table("attacks").update({
-            "feedback": feedback,
-            "feedback_at": datetime.utcnow().isoformat(),
-        }).eq("id", attack_id).execute()
+        result = (
+            client.table("attacks")
+            .update(
+                {
+                    "feedback": feedback,
+                    "feedback_at": datetime.utcnow().isoformat(),
+                }
+            )
+            .eq("id", attack_id)
+            .execute()
+        )
 
         return result.data is not None and len(result.data) > 0
 
     except Exception as e:
-        print(f"Supabase submit_feedback error: {e}")
+        logger.error("Supabase submit_feedback error: %s", e)
         return False
 
 
@@ -137,9 +146,18 @@ def get_stats() -> dict:
     try:
         # Use count queries to avoid 1000 row limit
         total_result = client.table("attacks").select("id", count="exact").execute()
-        blocked_result = client.table("attacks").select("id", count="exact").eq("verdict", "blocked").execute()
-        bypassed_result = client.table("attacks").select("id", count="exact").eq("verdict", "approved").execute()
-        feedback_result = client.table("attacks").select("id", count="exact").not_.is_("feedback", "null").execute()
+        blocked_result = (
+            client.table("attacks").select("id", count="exact").eq("verdict", "blocked").execute()
+        )
+        bypassed_result = (
+            client.table("attacks").select("id", count="exact").eq("verdict", "approved").execute()
+        )
+        feedback_result = (
+            client.table("attacks")
+            .select("id", count="exact")
+            .not_.is_("feedback", "null")
+            .execute()
+        )
 
         total = total_result.count or 0
         blocked = blocked_result.count or 0
@@ -149,10 +167,12 @@ def get_stats() -> dict:
         # Get patched stats from meta table
         patched = 0
         try:
-            meta_result = client.table("vetonet_meta").select("value").eq("key", "patched_stats").execute()
+            meta_result = (
+                client.table("vetonet_meta").select("value").eq("key", "patched_stats").execute()
+            )
             if meta_result.data:
                 patched = meta_result.data[0].get("value", {}).get("patched", 0)
-        except:
+        except Exception:
             pass
 
         return {
@@ -165,7 +185,7 @@ def get_stats() -> dict:
         }
 
     except Exception as e:
-        print(f"Supabase get_stats error: {e}")
+        logger.error("Supabase get_stats error: %s", e)
         return {
             "total_attempts": 0,
             "blocked": 0,
@@ -188,9 +208,13 @@ def get_vector_stats() -> list:
         offset = 0
 
         while True:
-            result = client.table("attacks").select(
-                "attack_vector, verdict"
-            ).not_.is_("attack_vector", "null").range(offset, offset + page_size - 1).execute()
+            result = (
+                client.table("attacks")
+                .select("attack_vector, verdict")
+                .not_.is_("attack_vector", "null")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
 
             if not result.data:
                 break
@@ -223,7 +247,7 @@ def get_vector_stats() -> list:
         return vectors
 
     except Exception as e:
-        print(f"Supabase get_vector_stats error: {e}")
+        logger.error("Supabase get_vector_stats error: %s", e)
         return []
 
 
@@ -234,14 +258,20 @@ def get_recent_attacks(limit: int = 20) -> list:
         return []
 
     try:
-        result = client.table("attacks").select(
-            "id, created_at, prompt, verdict, blocked_by, attack_vector, payload, confidence"
-        ).order("created_at", desc=True).limit(limit).execute()
+        result = (
+            client.table("attacks")
+            .select(
+                "id, created_at, prompt, verdict, blocked_by, attack_vector, payload, confidence"
+            )
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
 
         return result.data or []
 
     except Exception as e:
-        print(f"Supabase get_recent_attacks error: {e}")
+        logger.error("Supabase get_recent_attacks error: %s", e)
         return []
 
 
@@ -252,18 +282,23 @@ def get_attacks_for_export(limit: int = 1000) -> list:
         return []
 
     try:
-        result = client.table("attacks").select("*").order(
-            "created_at", desc=True
-        ).limit(limit).execute()
+        result = (
+            client.table("attacks")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
 
         return result.data or []
 
     except Exception as e:
-        print(f"Supabase get_attacks_for_export error: {e}")
+        logger.error("Supabase get_attacks_for_export error: %s", e)
         return []
 
 
 # ============== ML Training Data ==============
+
 
 def add_training_data(
     prompt: str,
@@ -287,24 +322,27 @@ def add_training_data(
 
     try:
         import hashlib
+
         prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
 
-        client.table("ml_training_data").insert({
-            "source": source,
-            "prompt": prompt,
-            "intent": intent,
-            "payload": payload,
-            "is_attack": is_attack,
-            "attack_vector": attack_vector,
-            "blocked_by": blocked_by,
-            "confidence": confidence,
-            "human_verified": source == "synthetic",  # Synthetic data is "verified" by design
-            "prompt_hash": prompt_hash,
-        }).execute()
+        client.table("ml_training_data").insert(
+            {
+                "source": source,
+                "prompt": prompt,
+                "intent": intent,
+                "payload": payload,
+                "is_attack": is_attack,
+                "attack_vector": attack_vector,
+                "blocked_by": blocked_by,
+                "confidence": confidence,
+                "human_verified": source == "synthetic",  # Synthetic data is "verified" by design
+                "prompt_hash": prompt_hash,
+            }
+        ).execute()
         return True
 
     except Exception as e:
-        print(f"Supabase add_training_data error: {e}")
+        logger.error("Supabase add_training_data error: %s", e)
         return False
 
 
@@ -343,7 +381,7 @@ def get_ml_training_data(
         return result.data or []
 
     except Exception as e:
-        print(f"Supabase get_ml_training_data error: {e}")
+        logger.error("Supabase get_ml_training_data error: %s", e)
         return []
 
 
@@ -355,9 +393,24 @@ def get_training_stats() -> dict:
 
     try:
         total = client.table("ml_training_data").select("id", count="exact").execute()
-        attacks = client.table("ml_training_data").select("id", count="exact").eq("is_attack", True).execute()
-        legitimate = client.table("ml_training_data").select("id", count="exact").eq("is_attack", False).execute()
-        verified = client.table("ml_training_data").select("id", count="exact").eq("human_verified", True).execute()
+        attacks = (
+            client.table("ml_training_data")
+            .select("id", count="exact")
+            .eq("is_attack", True)
+            .execute()
+        )
+        legitimate = (
+            client.table("ml_training_data")
+            .select("id", count="exact")
+            .eq("is_attack", False)
+            .execute()
+        )
+        verified = (
+            client.table("ml_training_data")
+            .select("id", count="exact")
+            .eq("human_verified", True)
+            .execute()
+        )
 
         return {
             "total": total.count or 0,
@@ -367,7 +420,7 @@ def get_training_stats() -> dict:
         }
 
     except Exception as e:
-        print(f"Supabase get_training_stats error: {e}")
+        logger.error("Supabase get_training_stats error: %s", e)
         return {}
 
 
@@ -378,18 +431,21 @@ def mark_as_verified(training_id: str, feedback: str = "correct") -> bool:
         return False
 
     try:
-        client.table("ml_training_data").update({
-            "human_verified": True,
-            "feedback": feedback,
-        }).eq("id", training_id).execute()
+        client.table("ml_training_data").update(
+            {
+                "human_verified": True,
+                "feedback": feedback,
+            }
+        ).eq("id", training_id).execute()
         return True
 
     except Exception as e:
-        print(f"Supabase mark_as_verified error: {e}")
+        logger.error("Supabase mark_as_verified error: %s", e)
         return False
 
 
 # ============== API Key Management ==============
+
 
 def create_api_key(
     user_id: str,
@@ -443,7 +499,7 @@ def create_api_key(
         return None
 
     except Exception as e:
-        print(f"Supabase create_api_key error: {e}")
+        logger.error("Supabase create_api_key error: %s", e)
         return None
 
 
@@ -461,16 +517,21 @@ def get_api_key_by_hash(key_hash: str) -> Optional[dict]:
         return None
 
     try:
-        result = client.table("api_keys").select(
-            "id, user_id, key_prefix, name, rate_limit, created_at, last_used_at, expires_at, is_active"
-        ).eq("key_hash", key_hash).execute()
+        result = (
+            client.table("api_keys")
+            .select(
+                "id, user_id, key_prefix, name, rate_limit, created_at, last_used_at, expires_at, is_active"
+            )
+            .eq("key_hash", key_hash)
+            .execute()
+        )
 
         if result.data and len(result.data) > 0:
             return result.data[0]
         return None
 
     except Exception as e:
-        print(f"Supabase get_api_key_by_hash error: {e}")
+        logger.error("Supabase get_api_key_by_hash error: %s", e)
         return None
 
 
@@ -481,13 +542,15 @@ def update_key_last_used(key_id: str) -> bool:
         return False
 
     try:
-        client.table("api_keys").update({
-            "last_used_at": datetime.utcnow().isoformat(),
-        }).eq("id", key_id).execute()
+        client.table("api_keys").update(
+            {
+                "last_used_at": datetime.utcnow().isoformat(),
+            }
+        ).eq("id", key_id).execute()
         return True
 
     except Exception as e:
-        print(f"Supabase update_key_last_used error: {e}")
+        logger.error("Supabase update_key_last_used error: %s", e)
         return False
 
 
@@ -502,14 +565,20 @@ def list_api_keys(user_id: str) -> list:
         return []
 
     try:
-        result = client.table("api_keys").select(
-            "id, key_prefix, name, rate_limit, created_at, last_used_at, expires_at, is_active"
-        ).eq("user_id", user_id).order("created_at", desc=True).execute()
+        result = (
+            client.table("api_keys")
+            .select(
+                "id, key_prefix, name, rate_limit, created_at, last_used_at, expires_at, is_active"
+            )
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
 
         return result.data or []
 
     except Exception as e:
-        print(f"Supabase list_api_keys error: {e}")
+        logger.error("Supabase list_api_keys error: %s", e)
         return []
 
 
@@ -524,14 +593,22 @@ def revoke_api_key(key_id: str, user_id: str) -> bool:
         return False
 
     try:
-        result = client.table("api_keys").update({
-            "is_active": False,
-        }).eq("id", key_id).eq("user_id", user_id).execute()
+        result = (
+            client.table("api_keys")
+            .update(
+                {
+                    "is_active": False,
+                }
+            )
+            .eq("id", key_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
 
         return result.data is not None and len(result.data) > 0
 
     except Exception as e:
-        print(f"Supabase revoke_api_key error: {e}")
+        logger.error("Supabase revoke_api_key error: %s", e)
         return False
 
 
@@ -542,16 +619,18 @@ def log_api_usage(key_id: str, endpoint: str, status: int, latency_ms: int) -> b
         return False
 
     try:
-        client.table("api_usage").insert({
-            "key_id": key_id,
-            "endpoint": endpoint,
-            "response_status": status,
-            "latency_ms": latency_ms,
-        }).execute()
+        client.table("api_usage").insert(
+            {
+                "key_id": key_id,
+                "endpoint": endpoint,
+                "response_status": status,
+                "latency_ms": latency_ms,
+            }
+        ).execute()
         return True
 
     except Exception as e:
-        print(f"Supabase log_api_usage error: {e}")
+        logger.error("Supabase log_api_usage error: %s", e)
         return False
 
 
@@ -563,9 +642,12 @@ def get_key_usage_stats(key_id: str, days: int = 30) -> dict:
 
     try:
         # Get recent usage
-        result = client.table("api_usage").select(
-            "response_status, latency_ms"
-        ).eq("key_id", key_id).execute()
+        result = (
+            client.table("api_usage")
+            .select("response_status, latency_ms")
+            .eq("key_id", key_id)
+            .execute()
+        )
 
         if not result.data:
             return {"total_requests": 0, "avg_latency_ms": 0}
@@ -581,11 +663,12 @@ def get_key_usage_stats(key_id: str, days: int = 30) -> dict:
         }
 
     except Exception as e:
-        print(f"Supabase get_key_usage_stats error: {e}")
+        logger.error("Supabase get_key_usage_stats error: %s", e)
         return {"total_requests": 0, "avg_latency_ms": 0}
 
 
 # ============== Security Audit Logging ==============
+
 
 def log_key_audit(
     key_id: str,
@@ -604,18 +687,20 @@ def log_key_audit(
         return False
 
     try:
-        client.table("api_key_audit").insert({
-            "key_id": key_id,
-            "action": action,
-            "reason": reason,
-            "ip_address": ip_address,
-            "user_agent": user_agent,
-        }).execute()
+        client.table("api_key_audit").insert(
+            {
+                "key_id": key_id,
+                "action": action,
+                "reason": reason,
+                "ip_address": ip_address,
+                "user_agent": user_agent,
+            }
+        ).execute()
         return True
 
     except Exception as e:
         # Don't fail silently on audit - this is security-critical
-        print(f"SECURITY WARNING: Audit log failed: {e}")
+        logger.error("SECURITY WARNING: Audit log failed: %s", e)
         return False
 
 
@@ -632,16 +717,20 @@ def get_failed_auth_count(key_id: str, minutes: int = 5) -> int:
     try:
         # Count failed_auth events in last N minutes
         from datetime import timedelta
+
         cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
 
-        result = client.table("api_key_audit").select(
-            "id", count="exact"
-        ).eq("key_id", key_id).eq("action", "failed_auth").gte(
-            "created_at", cutoff
-        ).execute()
+        result = (
+            client.table("api_key_audit")
+            .select("id", count="exact")
+            .eq("key_id", key_id)
+            .eq("action", "failed_auth")
+            .gte("created_at", cutoff)
+            .execute()
+        )
 
         return result.count if result.count else 0
 
     except Exception as e:
-        print(f"Supabase get_failed_auth_count error: {e}")
+        logger.error("Supabase get_failed_auth_count error: %s", e)
         return 0

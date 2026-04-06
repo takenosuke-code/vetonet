@@ -28,7 +28,7 @@ class VetoConfig:
 
     # Semantic settings
     semantic_threshold: float = 0.7  # Minimum similarity score
-    semantic_mode: str = "always"  # "always", "smart", or "never"
+    semantic_mode: str = "always"  # Valid values: "always", "smart", "never"
     semantic_skip_threshold: float = (
         100.0  # In "smart" mode, price threshold for forcing semantic check
     )
@@ -49,6 +49,13 @@ class VetoConfig:
         "costco.com",
         "footlocker.com",
     )
+
+    def __post_init__(self) -> None:
+        valid_modes = ("always", "smart", "never")
+        if self.semantic_mode not in valid_modes:
+            raise ValueError(
+                f"Invalid semantic_mode {self.semantic_mode!r}. Must be one of {valid_modes}"
+            )
 
     suspicious_tlds: tuple[str, ...] = (
         # Original list

@@ -13,6 +13,7 @@ import re
 from vetonet.models import IntentAnchor, AgentPayload, CheckResult
 from vetonet.llm.client import LLMClient
 from vetonet.config import VetoConfig, DEFAULT_VETO_CONFIG
+from vetonet.text_sanitize import LEET_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,9 @@ def sanitize_for_prompt(text: str, max_length: int = 500) -> str:
     text = text.replace('"', '\\"')
     text = text.replace("\n", " ")
     text = text.replace("\r", " ")
+    text = text.replace("\u2028", " ")
+    text = text.replace("\u2029", " ")
+    text = text.replace("\u0085", " ")
 
     # Remove any attempts to inject score directly
     text = re.sub(r'(?i)["\']?\s*score["\']?\s*:\s*[\d.]+', "[FILTERED]", text)
@@ -61,9 +65,7 @@ def sanitize_for_prompt(text: str, max_length: int = 500) -> str:
     # Handle leet speak variations of injection keywords
     # Convert common leet speak before checking patterns
     leet_text = text.lower()
-    leet_map = {"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a"}
-    for leet, char in leet_map.items():
-        leet_text = leet_text.replace(leet, char)
+    leet_text = leet_text.translate(LEET_MAP)
 
     # Check for injection patterns in de-leeted text
     if re.search(r"ignore\s+(all\s+)?(previous|above|prior)", leet_text):
