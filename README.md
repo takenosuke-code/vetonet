@@ -7,7 +7,7 @@ VetoNet prevents prompt injection attacks that manipulate AI agents into unautho
 [![Live Demo](https://img.shields.io/badge/demo-veto--net.org-00FFD1)](https://veto-net.org)
 [![API Status](https://img.shields.io/badge/API-live-00FF88)](https://veto-net.org/auth)
 
-**Stats:** 3,700+ attacks tested | 98.7% blocked | 24 real bypasses found & documented
+**Stats:** 3,820+ attacks tested | 98.87% blocked | 24 real bypasses found & documented
 
 ---
 

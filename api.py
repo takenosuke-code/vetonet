@@ -11,7 +11,10 @@ from functools import wraps
 import hashlib
 import hmac
 import json
+import logging
 import os
+
+logger = logging.getLogger("vetonet.api")
 
 from vetonet.normalizer import IntentNormalizer
 from vetonet.engine import VetoEngine
@@ -53,7 +56,7 @@ if GROQ_API_KEY:
     llm_client = create_client(llm_config)
     normalizer = IntentNormalizer(llm_client)
     engine = VetoEngine(llm_client=llm_client)
-    print("  LLM: Groq (llama-3.1-8b-instant)")
+    logger.info("LLM: Groq (llama-3.1-8b-instant)")
 else:
     # Try Ollama locally, or run without LLM
     try:
@@ -62,9 +65,9 @@ else:
         llm_client = create_client(DEFAULT_LLM_CONFIG)
         normalizer = IntentNormalizer(llm_client)
         engine = VetoEngine(llm_client=llm_client)
-        print("  LLM: Ollama (local)")
+        logger.info("LLM: Ollama (local)")
     except Exception as e:
-        print(f"  Warning: No LLM available ({e}). Semantic checks disabled.")
+        logger.warning(f"No LLM available ({e}). Semantic checks disabled.")
         llm_client = None
         normalizer = None
         engine = VetoEngine(llm_client=None)
@@ -241,7 +244,7 @@ def init_db():
     if SUPABASE_URL:
         client = supabase_db.get_client()
         if client:
-            print("  Database: Supabase (connected)")
+            logger.info("Database: Supabase (connected)")
             return
 
     # Fallback to Railway Postgres
@@ -264,19 +267,19 @@ def init_db():
             """)
             conn.commit()
             conn.close()
-            print("  Database: PostgreSQL (connected)")
+            logger.info("Database: PostgreSQL (connected)")
             return
         except Exception as e:
-            print(f"  Database: PostgreSQL failed ({e})")
+            logger.error(f"Database: PostgreSQL failed ({e})")
 
-    print("  Database: File fallback (data/attack_attempts.jsonl)")
+    logger.info("Database: File fallback (data/attack_attempts.jsonl)")
 
 
 # Initialize database on startup
 try:
     init_db()
 except Exception as e:
-    print(f"  Database: Failed ({e})")
+    logger.error(f"Database: Failed ({e})")
 
 # Data collection - log all attempts
 ATTACK_LOG_FILE = "data/attack_attempts.jsonl"
@@ -343,7 +346,7 @@ def log_attempt(data) -> str | None:
             conn.close()
             return None
         except Exception as e:
-            print(f"DB Error: {e}")
+            logger.error(f"DB Error: {e}")
 
     # Fallback to file
     with open(ATTACK_LOG_FILE, "a") as f:
@@ -1053,6 +1056,7 @@ def red_team():
 
 
 @app.route("/api/feedback", methods=["POST"])
+@require_rate_limit
 def submit_feedback():
     """
     Submit user feedback on a verdict.
@@ -1134,7 +1138,7 @@ def get_stats():
                 }
             )
         except Exception as e:
-            print(f"DB stats error: {e}")
+            logger.error(f"DB stats error: {e}")
 
     # Fallback to file
     if not os.path.exists(ATTACK_LOG_FILE):
@@ -1208,7 +1212,7 @@ def get_attacks():
 
             return jsonify({"attacks": attacks})
         except Exception as e:
-            print(f"DB attacks error: {e}")
+            logger.error(f"DB attacks error: {e}")
 
     # Fallback to file
     if not os.path.exists(ATTACK_LOG_FILE):
@@ -1310,7 +1314,7 @@ def export_csv():
                     ]
                 )
         except Exception as e:
-            print(f"DB export error: {e}")
+            logger.error(f"DB export error: {e}")
     else:
         # Fallback to file
         if os.path.exists(ATTACK_LOG_FILE):
@@ -1396,7 +1400,7 @@ def get_feed():
 
             return jsonify({"attacks": attacks})
         except Exception as e:
-            print(f"DB feed error: {e}")
+            logger.error(f"DB feed error: {e}")
 
     # Fallback to file
     if not os.path.exists(ATTACK_LOG_FILE):
@@ -1474,7 +1478,7 @@ def get_vectors():
 
             return jsonify({"vectors": vectors})
         except Exception as e:
-            print(f"DB vectors error: {e}")
+            logger.error(f"DB vectors error: {e}")
 
     # Fallback to file - aggregate from attack log
     if not os.path.exists(ATTACK_LOG_FILE):

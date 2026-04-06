@@ -458,10 +458,9 @@ function Pricing() {
             <div className="mb-6">
               <div className="text-cyan font-semibold text-lg mb-1">API</div>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl text-ash line-through">$49/mo</span>
                 <span className="text-3xl font-bold text-lime">Free</span>
               </div>
-              <div className="text-cyan text-sm">Limited early access</div>
+              <div className="text-cyan text-sm">During early access</div>
             </div>
             <ul className="space-y-3 mb-8 text-sm">
               <li className="flex items-center gap-2 text-smoke">
