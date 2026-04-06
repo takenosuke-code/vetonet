@@ -806,14 +806,12 @@ function Integration() {
           </div>
         </div>
 
-        {/* CTA Callout */}
-        <div className="text-center rounded-2xl bg-gradient-to-r from-violet/5 via-violet/10 to-violet/5 border border-violet/20 p-6">
-          <p className="text-white font-semibold mb-1">This entire checkout was protected by 3 lines of code.</p>
-          <p className="text-smoke text-sm mb-4">Get your API key and start protecting transactions in minutes.</p>
-          <Link to="/auth"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet to-violet/80 text-white font-medium text-sm hover:shadow-lg hover:shadow-violet/20 transition-all">
-            <Rocket className="w-4 h-4" />
-            Get Your API Key
+        {/* Sandbox CTA — inline */}
+        <div className="flex items-center justify-center gap-4">
+          <span className="text-white font-medium">Try your own intent & payload</span>
+          <Link to="/challenge"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-coral to-coral/80 text-white font-semibold text-sm hover:shadow-lg hover:shadow-coral/20 transition-all">
+            Open Sandbox
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -899,7 +897,7 @@ function Pricing() {
               </li>
               <li className="flex items-center gap-2 text-smoke">
                 <CheckCircle2 className="w-4 h-4 text-cyan flex-shrink-0" />
-                LLM semantic fallback
+                LLM semantic verification
               </li>
               <li className="flex items-center gap-2 text-smoke">
                 <CheckCircle2 className="w-4 h-4 text-cyan flex-shrink-0" />

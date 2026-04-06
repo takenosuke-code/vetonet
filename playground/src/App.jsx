@@ -1244,7 +1244,7 @@ function FeedbackButtons({ attackId, onFeedback }) {
 // MAIN PLAYGROUND
 // =============================================================================
 function Playground({ stats, fetchStats, playgroundRef, initialMode }) {
-  const [gameMode, setGameMode] = useState(initialMode || 'demo')
+  const [gameMode, setGameMode] = useState('redteam')
   const [prompt, setPrompt] = useState('$50 Amazon Gift Card')
   const [mode, setMode] = useState('honest')
   const [phase, setPhase] = useState('idle')
@@ -1252,13 +1252,6 @@ function Playground({ stats, fetchStats, playgroundRef, initialMode }) {
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [attackId, setAttackId] = useState(null)
-
-  // Sync with external mode changes (from ChallengeBanner)
-  useEffect(() => {
-    if (initialMode) {
-      setGameMode(initialMode)
-    }
-  }, [initialMode])
 
   // Red team payload state
   const [attackPayload, setAttackPayload] = useState({
@@ -1424,91 +1417,29 @@ function Playground({ stats, fetchStats, playgroundRef, initialMode }) {
   return (
     <section ref={playgroundRef} className="relative z-10 px-6 py-12">
       <div className="max-w-5xl mx-auto">
-        {/* Mode Toggle */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="flex justify-center mb-8"
-        >
-          <div className="inline-flex p-1.5 rounded-2xl bg-steel/50 border border-slate/50 backdrop-blur-sm">
-            <button
-              onClick={() => { setGameMode('demo'); reset(); }}
-              className={`px-6 py-3 rounded-xl font-medium text-sm transition-all flex items-center gap-2 ${
-                gameMode === 'demo'
-                  ? 'bg-gradient-to-r from-cyan/20 to-cyan/10 text-cyan border border-cyan/30 shadow-lg shadow-cyan/10'
-                  : 'text-smoke hover:text-white'
-              }`}
-            >
-              <Play className="w-4 h-4" />
-              Demo Mode
-            </button>
-            <button
-              onClick={() => { setGameMode('redteam'); reset(); }}
-              className={`px-6 py-3 rounded-xl font-medium text-sm transition-all flex items-center gap-2 ${
-                gameMode === 'redteam'
-                  ? 'bg-gradient-to-r from-coral/20 to-coral/10 text-coral border border-coral/30 shadow-lg shadow-coral/10'
-                  : 'text-smoke hover:text-white'
-              }`}
-            >
-              <Swords className="w-4 h-4" />
-              Red Team
-            </button>
-            <button
-              onClick={() => { setGameMode('sandbox'); reset(); }}
-              className={`px-6 py-3 rounded-xl font-medium text-sm transition-all flex items-center gap-2 ${
-                gameMode === 'sandbox'
-                  ? 'bg-gradient-to-r from-violet/20 to-violet/10 text-violet border border-violet/30 shadow-lg shadow-violet/10'
-                  : 'text-smoke hover:text-white'
-              }`}
-            >
-              <Code2 className="w-4 h-4" />
-              Sandbox
-            </button>
-          </div>
-        </motion.div>
-
-        {/* Playground Content */}
+        {/* Red Team Content */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           className="glass-card rounded-3xl p-6 md:p-8 border border-slate/50"
         >
-          {gameMode === 'demo' ? (
-            <DemoMode
-              prompt={prompt}
-              setPrompt={setPrompt}
-              mode={mode}
-              setMode={setMode}
-              phase={phase}
-              currentCheck={currentCheck}
-              result={result}
-              runDemo={runDemo}
-              reset={reset}
-              error={error}
-              attackId={attackId}
-            />
-          ) : gameMode === 'redteam' ? (
-            <RedTeamMode
-              prompt={prompt}
-              setPrompt={setPrompt}
-              attackPayload={attackPayload}
-              setAttackPayload={setAttackPayload}
-              newFee={newFee}
-              setNewFee={setNewFee}
-              addFee={addFee}
-              phase={phase}
-              currentCheck={currentCheck}
-              result={result}
-              runRedTeam={runRedTeam}
-              reset={reset}
-              error={error}
-              attackId={attackId}
-            />
-          ) : (
-            <SandboxMode />
-          )}
+          <RedTeamMode
+            prompt={prompt}
+            setPrompt={setPrompt}
+            attackPayload={attackPayload}
+            setAttackPayload={setAttackPayload}
+            newFee={newFee}
+            setNewFee={setNewFee}
+            addFee={addFee}
+            phase={phase}
+            currentCheck={currentCheck}
+            result={result}
+            runRedTeam={runRedTeam}
+            reset={reset}
+            error={error}
+            attackId={attackId}
+          />
         </motion.div>
       </div>
     </section>
