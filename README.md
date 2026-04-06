@@ -43,7 +43,7 @@ Get your API key at [veto-net.org/auth](https://veto-net.org/auth)
 ### Option 2: LangChain Integration
 
 ```python
-from vetonet.langchain import protected_tool, init
+from vetonet.integrations.langchain import protected_tool, init
 
 init(api_key="veto_sk_live_xxx")  # Or set VETONET_API_KEY env var
 
@@ -154,7 +154,7 @@ AI agents are vulnerable to prompt injection attacks. A user says "buy me a $50 
 Zero-friction protection for LangChain tools:
 
 ```python
-from vetonet.langchain import protected_tool, VetoNetGuard
+from vetonet.integrations.langchain import protected_tool, VetoNetGuard
 
 # Simple: Just add the decorator
 @protected_tool

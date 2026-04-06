@@ -6,6 +6,7 @@ Converts messy natural language into structured IntentAnchor.
 
 from vetonet.models import IntentAnchor
 from vetonet.llm.client import LLMClient
+from vetonet.checks.semantic import sanitize_for_prompt
 
 
 NORMALIZE_PROMPT_TEMPLATE = """Extract the purchase intent from this user request. Return ONLY valid JSON.
@@ -71,7 +72,9 @@ class IntentNormalizer:
         Raises:
             ValueError: If intent cannot be extracted
         """
-        prompt = NORMALIZE_PROMPT_TEMPLATE.format(user_prompt=user_prompt)
+        # SECURITY: Sanitize user input before embedding in LLM prompt
+        safe_prompt = sanitize_for_prompt(user_prompt)
+        prompt = NORMALIZE_PROMPT_TEMPLATE.format(user_prompt=safe_prompt)
 
         try:
             data = self.llm_client.query_json(prompt)
