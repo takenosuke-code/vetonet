@@ -19,7 +19,7 @@ VetoNet prevents prompt injection attacks that manipulate AI agents into unautho
 import requests
 
 response = requests.post(
-    "https://web-production-fec907.up.railway.app/api/check",
+    "https://api.veto-net.org/api/check",
     headers={"Authorization": "Bearer veto_sk_live_xxx"},
     json={
         "intent": "Buy me Nike shoes under $100",
@@ -339,7 +339,7 @@ If only one is set, VetoNet will still block transactions when the API is unreac
 ### POST /api/check
 
 ```bash
-curl -X POST https://web-production-fec907.up.railway.app/api/check \
+curl -X POST https://api.veto-net.org/api/check \
   -H "Authorization: Bearer veto_sk_live_xxx" \
   -H "Content-Type: application/json" \
   -d '{

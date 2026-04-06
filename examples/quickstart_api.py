@@ -3,7 +3,7 @@
 
 import requests
 
-API_URL = "https://web-production-fec907.up.railway.app/api/demo"
+API_URL = "https://api.veto-net.org/api/demo"
 
 for mode in ("honest", "compromised"):
     resp = requests.post(API_URL, json={"mode": mode}, timeout=10)

@@ -128,7 +128,7 @@ def buy_item(item: str, price: float, vendor: str) -> str:
   rest: {
     label: 'REST API',
     filename: 'terminal',
-    code: `curl -X POST https://api.vetonet.dev/api/check \\
+    code: `curl -X POST https://api.veto-net.org/api/check \\
   -H "Authorization: Bearer veto_sk_live_xxx" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -1287,7 +1287,7 @@ function Playground({ stats, fetchStats, playgroundRef, initialMode }) {
         return
       }
     } catch (e) {
-      console.log('API unavailable, using mock')
+      console.warn('API unavailable, using mock:', e)
     }
 
     await animateMock()
@@ -1869,7 +1869,7 @@ function SandboxMode() {
           return
         }
       } catch (e) {
-        console.log('API unavailable, using mock for sandbox')
+        console.warn('API unavailable, using mock for sandbox:', e)
       }
     }
 

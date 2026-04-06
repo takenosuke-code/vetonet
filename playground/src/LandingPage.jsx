@@ -352,7 +352,7 @@ const CODE_SNIPPETS = {
   },
   rest: {
     label: 'REST API', filename: 'terminal',
-    raw: `curl -X POST https://api.vetonet.dev/api/check \\\n  -H "Authorization: Bearer veto_sk_live_xxx" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "prompt": "$50 Amazon Gift Card",\n    "payload": {\n      "item_description": "Amazon Gift Card",\n      "unit_price": 50,\n      "vendor": "amazon.com"\n    }\n  }'`,
+    raw: `curl -X POST https://api.veto-net.org/api/check \\\n  -H "Authorization: Bearer veto_sk_live_xxx" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "prompt": "$50 Amazon Gift Card",\n    "payload": {\n      "item_description": "Amazon Gift Card",\n      "unit_price": 50,\n      "vendor": "amazon.com"\n    }\n  }'`,
   },
 }
 
@@ -502,7 +502,7 @@ function Integration() {
           return
         }
       } catch (e) {
-        console.log('API unavailable, using mock')
+        console.warn('API unavailable, using mock:', e)
       }
     }
 

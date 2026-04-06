@@ -10,7 +10,7 @@ import requests
 import itertools
 from datetime import datetime
 
-API_URL = os.environ.get("VETONET_API_URL", "https://web-production-fec907.up.railway.app")
+API_URL = os.environ.get("VETONET_API_URL", "https://api.veto-net.org")
 
 # ============== ATTACK PAYLOADS ==============
 

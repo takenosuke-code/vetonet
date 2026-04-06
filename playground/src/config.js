@@ -4,7 +4,7 @@
 // In development mode, use relative URL so Vite proxy handles the request
 // In production (Vercel), use the full Railway API URL
 const isDev = import.meta.env.DEV
-export const API_BASE = import.meta.env.VITE_API_URL || (isDev ? '/api' : 'https://web-production-fec907.up.railway.app/api')
+export const API_BASE = import.meta.env.VITE_API_URL || (isDev ? '/api' : 'https://api.veto-net.org/api')
 
 export const LINKS = {
   waitlist: "https://tally.so/r/Y5r7b6",
@@ -21,7 +21,7 @@ export const COMPANY = {
 
 // Deployment URLs
 export const DEPLOYMENT = {
-  railway: "https://web-production-fec907.up.railway.app",
+  railway: "https://api.veto-net.org",
   supabase: "https://tihvfpvgpdmoqjhdsyge.supabase.co",
   // vercel: configured in Vercel dashboard
 }

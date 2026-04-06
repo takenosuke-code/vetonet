@@ -7,7 +7,7 @@ import requests
 import json
 import time
 
-API_BASE = "https://web-production-fec907.up.railway.app/api"
+API_BASE = "https://api.veto-net.org/api"
 
 def test_attack(intent, payload, attack_name, technique):
     """Test a single attack and return result"""

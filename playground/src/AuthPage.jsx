@@ -17,12 +17,14 @@ export default function AuthPage() {
   const navigate = useNavigate()
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [authMode, setAuthMode] = useState('signin') // signin, signup
+  const [authMode, setAuthMode] = useState('signin') // signin, signup, forgot
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [showResetForm, setShowResetForm] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
 
   // API Keys state
   const [keys, setKeys] = useState([])
@@ -48,6 +50,9 @@ export default function AuthPage() {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      if (_event === 'PASSWORD_RECOVERY') {
+        setShowResetForm(true)
+      }
       if (session) fetchKeys(session)
     })
 
@@ -121,6 +126,57 @@ export default function AuthPage() {
           throw new Error('Please verify your email before signing in. Check your inbox for the confirmation link.')
         }
       }
+    } catch (err) {
+      setError(err.message)
+    }
+    setLoading(false)
+  }
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault()
+    setError('')
+    setMessage('')
+
+    if (!supabase) {
+      setError('Supabase not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env')
+      return
+    }
+
+    if (!email) {
+      setError('Please enter your email address.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin + '/auth',
+      })
+      if (error) throw error
+      setMessage('Password reset link sent! Check your email.')
+    } catch (err) {
+      setError(err.message)
+    }
+    setLoading(false)
+  }
+
+  const handlePasswordUpdate = async (e) => {
+    e.preventDefault()
+    setError('')
+    setMessage('')
+
+    if (!supabase) {
+      setError('Supabase not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) throw error
+      setMessage('Password updated!')
+      setShowResetForm(false)
+      setNewPassword('')
     } catch (err) {
       setError(err.message)
     }
@@ -233,8 +289,8 @@ export default function AuthPage() {
 
       <main className="relative z-10 px-6 py-12">
         <div className="max-w-xl mx-auto">
-          {!session ? (
-            // Auth Form
+          {showResetForm ? (
+            // Set New Password Form
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -244,38 +300,20 @@ export default function AuthPage() {
                 <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-cyan/10 border border-cyan/20 mb-4">
                   <Key className="w-8 h-8 text-cyan" />
                 </div>
-                <h1 className="text-2xl font-bold text-white mb-2">
-                  {authMode === 'signup' ? 'Create Account' : 'Sign In'}
-                </h1>
-                <p className="text-smoke">
-                  {authMode === 'signup'
-                    ? 'Create an account to get your API key'
-                    : 'Sign in to manage your API keys'}
-                </p>
+                <h1 className="text-2xl font-bold text-white mb-2">Set New Password</h1>
+                <p className="text-smoke">Enter your new password below</p>
               </div>
 
-              <form onSubmit={handleAuth} className="space-y-4">
+              <form onSubmit={handlePasswordUpdate} className="space-y-4">
                 <div>
-                  <label className="block text-sm text-smoke mb-2">Email</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-steel/30 border border-slate/50 rounded-xl px-4 py-3 text-white placeholder:text-ash outline-none focus:border-cyan/50 transition-colors"
-                    placeholder="you@example.com"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-smoke mb-2">Password</label>
+                  <label className="block text-sm text-smoke mb-2">New Password</label>
                   <div className="relative">
                     <input
                       type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
                       className="w-full bg-steel/30 border border-slate/50 rounded-xl px-4 py-3 text-white placeholder:text-ash outline-none focus:border-cyan/50 transition-colors pr-12"
-                      placeholder="Enter password"
+                      placeholder="Enter new password"
                       required
                       minLength={6}
                     />
@@ -306,22 +344,118 @@ export default function AuthPage() {
                   disabled={loading}
                   className="w-full py-3 bg-cyan text-void font-semibold rounded-xl hover:bg-cyan/90 transition-colors disabled:opacity-50"
                 >
-                  {loading ? 'Loading...' : authMode === 'signup' ? 'Create Account' : 'Sign In'}
+                  {loading ? 'Loading...' : 'Update Password'}
+                </button>
+              </form>
+            </motion.div>
+          ) : !session ? (
+            // Auth Form
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-obsidian border border-slate/30 rounded-2xl p-8"
+            >
+              <div className="text-center mb-8">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-cyan/10 border border-cyan/20 mb-4">
+                  <Key className="w-8 h-8 text-cyan" />
+                </div>
+                <h1 className="text-2xl font-bold text-white mb-2">
+                  {authMode === 'signup' ? 'Create Account' : authMode === 'forgot' ? 'Reset Password' : 'Sign In'}
+                </h1>
+                <p className="text-smoke">
+                  {authMode === 'signup'
+                    ? 'Create an account to get your API key'
+                    : authMode === 'forgot'
+                      ? 'Enter your email to receive a reset link'
+                      : 'Sign in to manage your API keys'}
+                </p>
+              </div>
+
+              <form onSubmit={authMode === 'forgot' ? handleForgotPassword : handleAuth} className="space-y-4">
+                <div>
+                  <label className="block text-sm text-smoke mb-2">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-steel/30 border border-slate/50 rounded-xl px-4 py-3 text-white placeholder:text-ash outline-none focus:border-cyan/50 transition-colors"
+                    placeholder="you@example.com"
+                    required
+                  />
+                </div>
+
+                {authMode !== 'forgot' && (
+                  <div>
+                    <label className="block text-sm text-smoke mb-2">Password</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-steel/30 border border-slate/50 rounded-xl px-4 py-3 text-white placeholder:text-ash outline-none focus:border-cyan/50 transition-colors pr-12"
+                        placeholder="Enter password"
+                        required
+                        minLength={6}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-ash hover:text-white transition-colors"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    {authMode === 'signin' && (
+                      <div className="mt-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => { setAuthMode('forgot'); setError(''); setMessage('') }}
+                          className="text-sm text-cyan hover:underline"
+                        >
+                          Forgot your password?
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {error && (
+                  <div className="text-coral text-sm bg-coral/10 border border-coral/20 rounded-lg px-4 py-2">
+                    {error}
+                  </div>
+                )}
+
+                {message && (
+                  <div className="text-lime text-sm bg-lime/10 border border-lime/20 rounded-lg px-4 py-2">
+                    {message}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3 bg-cyan text-void font-semibold rounded-xl hover:bg-cyan/90 transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'Loading...' : authMode === 'signup' ? 'Create Account' : authMode === 'forgot' ? 'Send Reset Link' : 'Sign In'}
                 </button>
               </form>
 
               <div className="mt-6 text-center text-sm text-smoke">
-                {authMode === 'signup' ? (
+                {authMode === 'forgot' ? (
+                  <button onClick={() => { setAuthMode('signin'); setError(''); setMessage('') }} className="text-cyan hover:underline">
+                    Back to sign in
+                  </button>
+                ) : authMode === 'signup' ? (
                   <>
                     Already have an account?{' '}
-                    <button onClick={() => setAuthMode('signin')} className="text-cyan hover:underline">
+                    <button onClick={() => { setAuthMode('signin'); setError(''); setMessage('') }} className="text-cyan hover:underline">
                       Sign in
                     </button>
                   </>
                 ) : (
                   <>
                     Don't have an account?{' '}
-                    <button onClick={() => setAuthMode('signup')} className="text-cyan hover:underline">
+                    <button onClick={() => { setAuthMode('signup'); setError(''); setMessage('') }} className="text-cyan hover:underline">
                       Create one
                     </button>
                   </>

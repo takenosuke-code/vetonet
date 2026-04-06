@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://web-production-fec907.up.railway.app',
+        target: 'https://api.veto-net.org',
         changeOrigin: true,
       }
     }

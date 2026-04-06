@@ -6,7 +6,7 @@ Focus on gaps in detection
 import requests
 import time
 
-API_BASE = "https://web-production-fec907.up.railway.app/api"
+API_BASE = "https://api.veto-net.org/api"
 
 def test(intent, payload, name):
     try:

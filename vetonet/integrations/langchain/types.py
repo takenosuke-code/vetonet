@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
-_DEFAULT_API_URL = "https://web-production-fec907.up.railway.app"
+_DEFAULT_API_URL = "https://api.veto-net.org"
 
 
 # =============================================================================
