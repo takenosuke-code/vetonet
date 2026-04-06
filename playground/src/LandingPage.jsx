@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Shield, Bot, AlertTriangle, CheckCircle2, XCircle, Mail, Rocket, User } from 'lucide-react'
+import { Shield, Bot, AlertTriangle, CheckCircle2, XCircle, Mail, Rocket, User, Terminal, Copy, Check } from 'lucide-react'
 import { API_BASE, LINKS, COMPANY, STATS_FALLBACK, ICONS } from './config'
 import './index.css'
 
@@ -296,24 +296,66 @@ function DefenseTree() {
 // =============================================================================
 function Integration() {
   const [copied, setCopied] = useState(false)
+  const [codeMethod, setCodeMethod] = useState('sdk')
 
-  const code = `from vetonet import VetoNet
+  const snippets = {
+    sdk: {
+      label: 'SDK',
+      filename: 'app.py',
+      raw: `from vetonet import VetoNet\n\nveto = VetoNet(provider="groq", api_key="your-key")\n\nresult = veto.verify(\n    intent="$50 Amazon Gift Card",\n    payload={\n        "item_description": "Amazon Gift Card",\n        "unit_price": 50,\n        "vendor": "amazon.com"\n    }\n)\n\nif result.approved:\n    process_payment()`,
+      highlighted: (<>
+        <span className="text-violet-400">from</span> <span className="text-cyan">vetonet</span> <span className="text-violet-400">import</span> <span className="text-white">VetoNet</span>{'\n\n'}
+        <span className="text-white">veto</span> = <span className="text-cyan">VetoNet</span>(<span className="text-white">provider</span>=<span className="text-amber">"groq"</span>, <span className="text-white">api_key</span>=<span className="text-amber">"your-key"</span>){'\n\n'}
+        <span className="text-white">result</span> = <span className="text-white">veto</span>.<span className="text-lime">verify</span>({'\n'}
+        {'    '}<span className="text-white">intent</span>=<span className="text-amber">"$50 Amazon Gift Card"</span>,{'\n'}
+        {'    '}<span className="text-white">payload</span>={'{'}{'\n'}
+        {'        '}<span className="text-amber">"item_description"</span>: <span className="text-amber">"Amazon Gift Card"</span>,{'\n'}
+        {'        '}<span className="text-amber">"unit_price"</span>: <span className="text-cyan">50</span>,{'\n'}
+        {'        '}<span className="text-amber">"vendor"</span>: <span className="text-amber">"amazon.com"</span>{'\n'}
+        {'    '}{'}'}{'\n'}
+        ){'\n\n'}
+        <span className="text-violet-400">if</span> <span className="text-white">result</span>.<span className="text-white">approved</span>:{'\n'}
+        {'    '}<span className="text-lime">process_payment</span>()
+      </>),
+    },
+    langchain: {
+      label: 'LangChain',
+      filename: 'agent.py',
+      raw: `from vetonet.langchain import protected_tool, init\n\ninit(api_key="veto_sk_live_xxx")\n\n@protected_tool\ndef buy_item(item: str, price: float, vendor: str) -> str:\n    """Buy an item."""\n    return execute_purchase(item, price, vendor)\n\n# Done. One decorator = every transaction protected.`,
+      highlighted: (<>
+        <span className="text-violet-400">from</span> <span className="text-cyan">vetonet.langchain</span> <span className="text-violet-400">import</span> <span className="text-white">protected_tool</span>, <span className="text-white">init</span>{'\n\n'}
+        <span className="text-lime">init</span>(<span className="text-white">api_key</span>=<span className="text-amber">"veto_sk_live_xxx"</span>){'\n\n'}
+        <span className="text-cyan">@protected_tool</span>{'\n'}
+        <span className="text-violet-400">def</span> <span className="text-lime">buy_item</span>(<span className="text-white">item</span>: <span className="text-cyan">str</span>, <span className="text-white">price</span>: <span className="text-cyan">float</span>, <span className="text-white">vendor</span>: <span className="text-cyan">str</span>) -{'>'} <span className="text-cyan">str</span>:{'\n'}
+        {'    '}<span className="text-ash">"""Buy an item."""</span>{'\n'}
+        {'    '}<span className="text-violet-400">return</span> <span className="text-lime">execute_purchase</span>(<span className="text-white">item</span>, <span className="text-white">price</span>, <span className="text-white">vendor</span>){'\n\n'}
+        <span className="text-ash"># Done. One decorator = every transaction protected.</span>
+      </>),
+    },
+    rest: {
+      label: 'REST API',
+      filename: 'terminal',
+      raw: `curl -X POST https://api.vetonet.dev/api/check \\\n  -H "Authorization: Bearer veto_sk_live_xxx" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "prompt": "$50 Amazon Gift Card",\n    "payload": {\n      "item_description": "Amazon Gift Card",\n      "unit_price": 50,\n      "vendor": "amazon.com"\n    }\n  }'`,
+      highlighted: (<>
+        <span className="text-lime">curl</span> <span className="text-white">-X POST</span> <span className="text-cyan">https://api.vetonet.dev/api/check</span> \{'\n'}
+        {'  '}<span className="text-white">-H</span> <span className="text-amber">"Authorization: Bearer veto_sk_live_xxx"</span> \{'\n'}
+        {'  '}<span className="text-white">-H</span> <span className="text-amber">"Content-Type: application/json"</span> \{'\n'}
+        {'  '}<span className="text-white">-d</span> <span className="text-amber">{"'"}</span>{'{'}{'\n'}
+        {'    '}<span className="text-amber">"prompt"</span>: <span className="text-amber">"$50 Amazon Gift Card"</span>,{'\n'}
+        {'    '}<span className="text-amber">"payload"</span>: {'{'}{'\n'}
+        {'      '}<span className="text-amber">"item_description"</span>: <span className="text-amber">"Amazon Gift Card"</span>,{'\n'}
+        {'      '}<span className="text-amber">"unit_price"</span>: <span className="text-cyan">50</span>,{'\n'}
+        {'      '}<span className="text-amber">"vendor"</span>: <span className="text-amber">"amazon.com"</span>{'\n'}
+        {'    '}{'}'}{'\n'}
+        {'  '}{'}'}<span className="text-amber">{"'"}</span>
+      </>),
+    },
+  }
 
-veto = VetoNet()  # Uses API key from env
-
-# Agent found something to buy...
-purchase = agent.find_best_option()
-
-# Verify before any purchase
-result = veto.verify(
-    intent=user_request,
-    payload=purchase
-)
-if result.approved:
-    execute_purchase(purchase)`
+  const snippet = snippets[codeMethod]
 
   const copyCode = () => {
-    navigator.clipboard.writeText(code)
+    navigator.clipboard.writeText(snippet.raw)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -328,7 +370,7 @@ if result.approved:
               Integrate in minutes
             </h2>
             <p className="text-smoke mb-8">
-              Three simple steps. Works for any transaction type — flights, shoes, subscriptions, anything.
+              Pick your method. Works for any transaction type — flights, shoes, subscriptions, anything.
             </p>
 
             <div className="space-y-4">
@@ -358,6 +400,25 @@ if result.approved:
 
           {/* Right: Code */}
           <div>
+            {/* Method Toggle */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="inline-flex p-1 rounded-lg bg-carbon border border-slate/50">
+                {Object.entries(snippets).map(([key, val]) => (
+                  <button
+                    key={key}
+                    onClick={() => { setCodeMethod(key); setCopied(false); }}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                      codeMethod === key
+                        ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                        : 'text-smoke hover:text-white'
+                    }`}
+                  >
+                    {val.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="bg-obsidian border border-slate rounded-xl overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate bg-carbon">
                 <div className="flex items-center gap-2">
@@ -365,27 +426,21 @@ if result.approved:
                   <div className="w-3 h-3 rounded-full bg-amber/60" />
                   <div className="w-3 h-3 rounded-full bg-lime/60" />
                 </div>
-                <span className="text-xs text-ash font-mono">example.py</span>
+                <div className="flex items-center gap-1.5">
+                  <Terminal className="w-3.5 h-3.5 text-ash" />
+                  <span className="text-xs text-ash font-mono">{snippet.filename}</span>
+                </div>
                 <button
                   onClick={copyCode}
-                  className="text-ash hover:text-white transition-colors text-xs font-mono"
+                  className="flex items-center gap-1 text-ash hover:text-white transition-colors text-xs font-mono"
                 >
-                  {copied ? '✓ copied' : 'copy'}
+                  {copied ? <Check className="w-3 h-3 text-lime" /> : <Copy className="w-3 h-3" />}
+                  {copied ? 'copied' : 'copy'}
                 </button>
               </div>
               <pre className="p-4 text-sm font-mono overflow-x-auto">
                 <code className="text-smoke">
-                  <span className="text-violet-400">from</span> <span className="text-cyan">vetonet</span> <span className="text-violet-400">import</span> <span className="text-white">VetoNet</span>{'\n\n'}
-                  <span className="text-white">veto</span> = <span className="text-cyan">VetoNet</span>()  <span className="text-ash"># Uses API key from env</span>{'\n\n'}
-                  <span className="text-ash"># Agent found something to buy...</span>{'\n'}
-                  <span className="text-white">purchase</span> = <span className="text-white">agent</span>.<span className="text-lime">find_best_option</span>(){'\n\n'}
-                  <span className="text-ash"># Verify before any purchase</span>{'\n'}
-                  <span className="text-white">result</span> = <span className="text-white">veto</span>.<span className="text-lime">verify</span>({'\n'}
-                  {'    '}<span className="text-white">intent</span>=<span className="text-white">user_request</span>,{'\n'}
-                  {'    '}<span className="text-white">payload</span>=<span className="text-white">purchase</span>{'\n'}
-                  ){'\n'}
-                  <span className="text-violet-400">if</span> <span className="text-white">result</span>.<span className="text-white">approved</span>:{'\n'}
-                  {'    '}<span className="text-lime">execute_purchase</span>(<span className="text-white">purchase</span>)
+                  {snippet.highlighted}
                 </code>
               </pre>
             </div>
