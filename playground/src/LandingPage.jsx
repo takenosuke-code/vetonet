@@ -332,49 +332,81 @@ const INTEGRATION_CHECKS = [
 const CODE_SNIPPETS = {
   sdk: {
     label: 'SDK', filename: 'app.py',
-    code: `from vetonet import VetoNet
-
-veto = VetoNet(provider="groq", api_key="your-key")
-
-result = veto.verify(
-    intent="$50 Amazon Gift Card",
-    payload={
-        "item_description": "Amazon Gift Card",
-        "unit_price": 50,
-        "vendor": "amazon.com"
-    }
-)
-
-if result.approved:
-    process_payment()`,
+    raw: `from vetonet import VetoNet\n\nveto = VetoNet(provider="groq", api_key="your-key")\n\nresult = veto.verify(\n    intent="$50 Amazon Gift Card",\n    payload={\n        "item_description": "Amazon Gift Card",\n        "unit_price": 50,\n        "vendor": "amazon.com"\n    }\n)\n\nif result.approved:\n    process_payment()`,
   },
   langchain: {
     label: 'LangChain', filename: 'agent.py',
-    code: `from vetonet.langchain import protected_tool, init
-
-init(api_key="veto_sk_live_xxx")
-
-@protected_tool
-def buy_item(item: str, price: float, vendor: str) -> str:
-    """Buy an item."""
-    return execute_purchase(item, price, vendor)
-
-# Done. One decorator = every transaction protected.`,
+    raw: `from vetonet.integrations.langchain import protected_tool, init\n\ninit(api_key="veto_sk_live_xxx")\n\n@protected_tool\ndef buy_item(item: str, price: float, vendor: str) -> str:\n    """Buy an item."""\n    return execute_purchase(item, price, vendor)\n\n# Done. One decorator = every transaction protected.`,
+  },
+  openai: {
+    label: 'OpenAI', filename: 'openai_agent.py',
+    raw: `from vetonet.integrations.openai import VetoNetOpenAI\n\nveto = VetoNetOpenAI(api_key="veto_sk_live_xxx")\nveto.lock_intent("Buy a $50 Amazon gift card")\n\nresponse = client.chat.completions.create(\n    model="gpt-4o", tools=tools, messages=messages\n)\n\nresults = veto.process_tool_calls(response, executors={\n    "buy_item": buy_item_function\n})`,
+  },
+  anthropic: {
+    label: 'Anthropic', filename: 'claude_agent.py',
+    raw: `from vetonet.integrations.anthropic import VetoNetAnthropic\n\nveto = VetoNetAnthropic(api_key="veto_sk_live_xxx")\nveto.lock_intent("Buy a $50 Amazon gift card")\n\nresponse = client.messages.create(\n    model="claude-sonnet-4-20250514", tools=tools, messages=messages\n)\n\nresults = veto.process_tool_calls(response, executors={\n    "buy_item": buy_item_function\n})`,
+  },
+  crewai: {
+    label: 'CrewAI', filename: 'crew_agent.py',
+    raw: `from vetonet.integrations.crewai import VetoNetCrewAI, vetonet_tool\n\nveto = VetoNetCrewAI(api_key="veto_sk_live_xxx")\nveto.lock_intent("Buy a $50 Amazon gift card")\n\n@vetonet_tool(field_map={"cost": "unit_price"})\ndef buy_item(item: str, cost: float, vendor: str) -> str:\n    """Buy an item from a vendor."""\n    return execute_purchase(item, cost, vendor)`,
   },
   rest: {
     label: 'REST API', filename: 'terminal',
-    code: `curl -X POST https://api.vetonet.dev/api/check \\
-  -H "Authorization: Bearer veto_sk_live_xxx" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "prompt": "$50 Amazon Gift Card",
-    "payload": {
-      "item_description": "Amazon Gift Card",
-      "unit_price": 50,
-      "vendor": "amazon.com"
-    }
-  }'`,
+    raw: `curl -X POST https://api.vetonet.dev/api/check \\\n  -H "Authorization: Bearer veto_sk_live_xxx" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "prompt": "$50 Amazon Gift Card",\n    "payload": {\n      "item_description": "Amazon Gift Card",\n      "unit_price": 50,\n      "vendor": "amazon.com"\n    }\n  }'`,
   },
+}
+
+function highlightCode(raw) {
+  return raw.split('\n').map((line, i) => {
+    if (line.trimStart().startsWith('#')) return <span key={i}><span className="text-ash">{line}</span>{'\n'}</span>
+    if (line.trimStart().startsWith('"""')) return <span key={i}><span className="text-ash">{line}</span>{'\n'}</span>
+
+    const parts = []
+    let rest = line
+    let k = 0
+
+    const keywords = ['from', 'import', 'def', 'if', 'return', 'class', 'async', 'await']
+    const consume = (regex, cls) => {
+      const m = rest.match(regex)
+      if (m) {
+        if (m.index > 0) parts.push(<span key={k++} className="text-white">{rest.slice(0, m.index)}</span>)
+        parts.push(<span key={k++} className={cls}>{m[0]}</span>)
+        rest = rest.slice(m.index + m[0].length)
+        return true
+      }
+      return false
+    }
+
+    while (rest.length > 0) {
+      // strings
+      if (consume(/^"[^"]*"/, 'text-amber')) continue
+      if (consume(/^'[^']*'/, 'text-amber')) continue
+      // decorators
+      if (consume(/^@\w+[\w.]*/, 'text-cyan')) continue
+      // keywords at word boundary
+      const kwMatch = rest.match(new RegExp(`^(${keywords.join('|')})(?=\\s|\\(|$)`))
+      if (kwMatch) {
+        parts.push(<span key={k++} className="text-violet-400">{kwMatch[0]}</span>)
+        rest = rest.slice(kwMatch[0].length)
+        continue
+      }
+      // numbers
+      if (consume(/^\d+(\.\d+)?/, 'text-cyan')) continue
+      // function calls
+      if (consume(/^\w+(?=\()/, 'text-lime')) continue
+      // curl/shell commands
+      if (consume(/^curl/, 'text-lime')) continue
+      if (consume(/^-[HXd]/, 'text-white')) continue
+      // backslash continuation
+      if (consume(/^\\$/, 'text-ash')) continue
+      // default: consume one char
+      const ch = rest[0]
+      parts.push(<span key={k++} className="text-white">{ch}</span>)
+      rest = rest.slice(1)
+    }
+
+    return <span key={i}>{parts}{'\n'}</span>
+  })
 }
 
 const STEPS_BY_METHOD = {
@@ -387,6 +419,24 @@ const STEPS_BY_METHOD = {
   langchain: [
     { label: 'Install', cmd: 'pip install vetonet', icon: <Package className="w-5 h-5" /> },
     { label: 'Add one decorator', cmd: '@protected_tool', icon: <Code2 className="w-5 h-5" /> },
+    { label: 'Ship it', cmd: 'Every transaction protected', icon: <Rocket className="w-5 h-5" /> },
+  ],
+  openai: [
+    { label: 'Install', cmd: 'pip install vetonet', icon: <Package className="w-5 h-5" /> },
+    { label: 'Lock intent', cmd: 'veto.lock_intent(prompt)', icon: <Lock className="w-5 h-5" /> },
+    { label: 'Process calls', cmd: 'veto.process_tool_calls()', icon: <Shield className="w-5 h-5" /> },
+    { label: 'Ship it', cmd: 'Every transaction protected', icon: <Rocket className="w-5 h-5" /> },
+  ],
+  anthropic: [
+    { label: 'Install', cmd: 'pip install vetonet', icon: <Package className="w-5 h-5" /> },
+    { label: 'Lock intent', cmd: 'veto.lock_intent(prompt)', icon: <Lock className="w-5 h-5" /> },
+    { label: 'Process calls', cmd: 'veto.process_tool_calls()', icon: <Shield className="w-5 h-5" /> },
+    { label: 'Ship it', cmd: 'Every transaction protected', icon: <Rocket className="w-5 h-5" /> },
+  ],
+  crewai: [
+    { label: 'Install', cmd: 'pip install vetonet', icon: <Package className="w-5 h-5" /> },
+    { label: 'Lock intent', cmd: 'veto.lock_intent(prompt)', icon: <Lock className="w-5 h-5" /> },
+    { label: 'Add decorator', cmd: '@vetonet_tool', icon: <Code2 className="w-5 h-5" /> },
     { label: 'Ship it', cmd: 'Every transaction protected', icon: <Rocket className="w-5 h-5" /> },
   ],
   rest: [
@@ -416,7 +466,7 @@ function Integration() {
   }, [codeMethod])
 
   const copyCode = () => {
-    navigator.clipboard.writeText(CODE_SNIPPETS[codeMethod].code)
+    navigator.clipboard.writeText(CODE_SNIPPETS[codeMethod].raw)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -502,7 +552,7 @@ function Integration() {
         {/* Header */}
         <div className="text-center">
           <h2 className="text-2xl md:text-3xl font-bold text-white mb-3">
-            Protect Every Transaction in <span className="text-cyan">3 Lines</span>
+            Protect Every Transaction in <span className="text-violet">3 Lines</span>
           </h2>
           <p className="text-smoke text-sm md:text-base">Pick your integration method. That's it.</p>
         </div>
@@ -515,11 +565,11 @@ function Integration() {
               onClick={() => setActiveStep(i)}
               className={`rounded-xl p-4 border text-left transition-all ${
                 activeStep === i
-                  ? 'border-cyan/40 bg-cyan/10 shadow-lg shadow-cyan/5'
+                  ? 'border-violet/40 bg-violet/10 shadow-lg shadow-violet/5'
                   : 'border-slate/30 bg-steel/20 hover:border-slate/50'
               }`}
             >
-              <div className={`mb-2 ${activeStep === i ? 'text-cyan' : 'text-ash'}`}>
+              <div className={`mb-2 ${activeStep === i ? 'text-violet' : 'text-ash'}`}>
                 {step.icon}
               </div>
               <div className="text-xs font-mono text-ash mb-1">STEP {i + 1}</div>
@@ -534,14 +584,14 @@ function Integration() {
         {/* Code Showcase */}
         <div>
           <div className="flex items-center justify-between mb-3">
-            <div className="inline-flex p-1 rounded-xl bg-steel/50 border border-slate/50">
+            <div className="inline-flex flex-wrap p-1 rounded-xl bg-steel/50 border border-slate/50 gap-0.5">
               {Object.entries(CODE_SNIPPETS).map(([key, val]) => (
                 <button
                   key={key}
                   onClick={() => { setCodeMethod(key); setCopied(false); setActiveStep(0) }}
-                  className={`px-4 py-2 rounded-lg text-xs font-medium transition-all ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                     codeMethod === key
-                      ? 'bg-cyan/20 text-cyan border border-cyan/30'
+                      ? 'bg-violet/20 text-violet border border-violet/30'
                       : 'text-smoke hover:text-white'
                   }`}
                 >
@@ -579,12 +629,7 @@ function Integration() {
                 </div>
               </div>
               <pre className="p-5 text-sm font-mono leading-relaxed overflow-x-auto">
-                <code className="text-smoke">{snippet.code.split('\n').map((line, i) => (
-                  <span key={i}>
-                    {line.startsWith('#') ? <span className="text-ash">{line}</span> : line}
-                    {'\n'}
-                  </span>
-                ))}</code>
+                <code className="text-smoke">{highlightCode(snippet.raw)}</code>
               </pre>
             </motion.div>
           </AnimatePresence>
@@ -602,7 +647,7 @@ function Integration() {
           {/* Left: Product cards */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <ShoppingCart className="w-4 h-4 text-cyan" />
+              <ShoppingCart className="w-4 h-4 text-violet" />
               <span className="text-sm font-semibold text-white">ShopBot AI</span>
               <span className="text-xs text-ash">— AI Shopping Assistant</span>
             </div>
@@ -617,7 +662,7 @@ function Integration() {
                   className={`rounded-xl p-4 border text-left transition-all ${
                     selectedProduct?.id === product.id
                       ? product.safe
-                        ? 'border-cyan/40 bg-cyan/5'
+                        ? 'border-violet/40 bg-violet/5'
                         : 'border-coral/40 bg-coral/5'
                       : 'border-slate/30 bg-steel/20 hover:border-slate/50'
                   } ${storePhase !== 'idle' && storePhase !== 'result' ? 'opacity-50 cursor-wait' : ''}`}
@@ -637,10 +682,10 @@ function Integration() {
           {/* Right: VetoNet Shield Panel */}
           <div className="rounded-2xl border border-slate/40 bg-obsidian/60 overflow-hidden">
             <div className="px-4 py-3 border-b border-slate/30 flex items-center gap-2 bg-obsidian/80">
-              <Shield className="w-4 h-4 text-cyan" />
+              <Shield className="w-4 h-4 text-violet" />
               <span className="text-xs font-mono text-smoke">vetonet_shield</span>
               {storePhase === 'scanning' && (
-                <span className="ml-auto text-[10px] font-mono text-cyan animate-pulse flex items-center gap-1">
+                <span className="ml-auto text-[10px] font-mono text-violet animate-pulse flex items-center gap-1">
                   <Activity className="w-3 h-3" /> scanning
                 </span>
               )}
@@ -659,9 +704,9 @@ function Integration() {
                   className="flex flex-col items-center justify-center py-8 gap-3">
                   <motion.div animate={{ rotate: 360 }}
                     transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>
-                    <Lock className="w-8 h-8 text-cyan" />
+                    <Lock className="w-8 h-8 text-violet" />
                   </motion.div>
-                  <span className="text-xs font-mono text-cyan">Locking user intent...</span>
+                  <span className="text-xs font-mono text-violet">Locking user intent...</span>
                 </motion.div>
               )}
 
@@ -680,8 +725,8 @@ function Integration() {
                 <div className="space-y-4">
                   {selectedProduct && (
                     <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                      <div className="rounded-lg bg-cyan/5 border border-cyan/20 p-2.5">
-                        <div className="text-cyan text-[10px] mb-1">INTENT</div>
+                      <div className="rounded-lg bg-violet/5 border border-violet/20 p-2.5">
+                        <div className="text-violet text-[10px] mb-1">INTENT</div>
                         <div className="text-white truncate">{selectedProduct.prompt}</div>
                       </div>
                       <div className={`rounded-lg p-2.5 ${
@@ -705,13 +750,13 @@ function Integration() {
                         <div key={check.id || i}
                           className={`rounded-lg p-2 text-center border transition-all ${
                             failed ? 'bg-coral/10 border-coral/30' :
-                            isActive ? 'bg-cyan/10 border-cyan/20' :
+                            isActive ? 'bg-violet/10 border-violet/20' :
                             'bg-steel/10 border-slate/20'
                           }`}>
                           {failed ? (
                             <XCircle className="w-4 h-4 mx-auto text-coral" />
                           ) : isActive ? (
-                            <CheckCircle2 className="w-4 h-4 mx-auto text-cyan" />
+                            <CheckCircle2 className="w-4 h-4 mx-auto text-violet" />
                           ) : (
                             <div className="w-4 h-4 mx-auto rounded-full border border-slate/40" />
                           )}
@@ -762,11 +807,11 @@ function Integration() {
         </div>
 
         {/* CTA Callout */}
-        <div className="text-center rounded-2xl bg-gradient-to-r from-cyan/5 via-cyan/10 to-cyan/5 border border-cyan/20 p-6">
+        <div className="text-center rounded-2xl bg-gradient-to-r from-violet/5 via-violet/10 to-violet/5 border border-violet/20 p-6">
           <p className="text-white font-semibold mb-1">This entire checkout was protected by 3 lines of code.</p>
           <p className="text-smoke text-sm mb-4">Get your API key and start protecting transactions in minutes.</p>
           <Link to="/auth"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan to-cyan/80 text-void font-medium text-sm hover:shadow-lg hover:shadow-cyan/20 transition-all">
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet to-violet/80 text-white font-medium text-sm hover:shadow-lg hover:shadow-violet/20 transition-all">
             <Rocket className="w-4 h-4" />
             Get Your API Key
             <ArrowRight className="w-4 h-4" />
