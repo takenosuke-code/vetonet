@@ -18,7 +18,7 @@ class TestEnvExampleExists:
 class TestEnvExampleContents:
     @pytest.fixture(autouse=True)
     def _load(self):
-        self.content = ENV_EXAMPLE.read_text()
+        self.content = ENV_EXAMPLE.read_text(encoding="utf-8")
 
     def test_contains_supabase_url(self):
         assert "VITE_SUPABASE_URL" in self.content

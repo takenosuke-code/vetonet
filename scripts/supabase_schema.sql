@@ -116,16 +116,15 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_source ON telemetry(source);
 -- ALTER TABLE attacks ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE training_data ENABLE ROW LEVEL SECURITY;
 
--- Grant access: anon gets read-only on public data, authenticated gets read-write
--- SECURITY: api_keys table is service_role only (no anon/authenticated write access)
-GRANT SELECT, INSERT ON attacks TO anon, authenticated;
-GRANT UPDATE ON attacks TO authenticated;
-GRANT SELECT, INSERT ON training_data TO anon, authenticated;
+-- Grant access: anon/authenticated get SELECT only on public tables
+-- All writes go through service_role (API backend)
+GRANT SELECT ON attacks TO anon, authenticated;
+GRANT SELECT ON training_data TO anon, authenticated;
 GRANT SELECT ON api_keys TO authenticated;
-GRANT SELECT, INSERT ON api_usage TO authenticated;
-GRANT SELECT, INSERT ON api_key_audit TO authenticated;
-GRANT SELECT, INSERT ON ml_training_data TO authenticated;
-GRANT SELECT, INSERT ON telemetry TO anon, authenticated;
+GRANT SELECT ON api_usage TO authenticated;
+GRANT SELECT ON api_key_audit TO authenticated;
+GRANT SELECT ON ml_training_data TO anon, authenticated;
+GRANT SELECT ON telemetry TO anon, authenticated;
 
 -- Useful views
 

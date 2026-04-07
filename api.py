@@ -37,9 +37,19 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
 # CORS origins from env or defaults
 CORS_ORIGINS = os.environ.get(
-    "CORS_ORIGINS", "https://veto-net.org,https://vetonet-3jz7.vercel.app,http://localhost:5173"
+    "CORS_ORIGINS", "https://veto-net.org,https://vetonet-3jz7.vercel.app"
 ).split(",")
 CORS(app, origins=CORS_ORIGINS)
+
+
+@app.after_request
+def set_security_headers(response):
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 # ============== LLM Configuration ==============
 # Railway/production: Use Groq (free, fast)
@@ -1511,6 +1521,7 @@ def get_vectors():
 
 
 @app.route("/api/telemetry", methods=["POST"])
+@require_rate_limit
 def receive_telemetry():
     """
     Receive telemetry from SDK users.

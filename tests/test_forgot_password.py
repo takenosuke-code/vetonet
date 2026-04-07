@@ -10,7 +10,7 @@ AUTHPAGE = pathlib.Path(__file__).resolve().parents[1] / "playground" / "src" / 
 @pytest.fixture(scope="module")
 def authpage_source() -> str:
     """Read AuthPage.jsx source once for all tests in this module."""
-    return AUTHPAGE.read_text()
+    return AUTHPAGE.read_text(encoding="utf-8")
 
 
 class TestForgotPasswordFlow:

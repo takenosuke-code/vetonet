@@ -17,7 +17,7 @@ class TestNoConsoleLog:
 
     @pytest.mark.parametrize("filepath", FILES, ids=lambda p: p.name)
     def test_no_console_log(self, filepath: Path):
-        lines = filepath.read_text().splitlines()
+        lines = filepath.read_text(encoding="utf-8").splitlines()
         violations = []
         for i, line in enumerate(lines, start=1):
             stripped = line.lstrip()
@@ -35,7 +35,7 @@ class TestConsoleWarnPresent:
 
     @pytest.mark.parametrize("filepath", FILES, ids=lambda p: p.name)
     def test_console_warn_api_unavailable(self, filepath: Path):
-        content = filepath.read_text()
+        content = filepath.read_text(encoding="utf-8")
         assert "console.warn('API unavailable" in content, (
             f"{filepath.name} should contain console.warn('API unavailable ...') "
             "for diagnostic context in catch blocks"
